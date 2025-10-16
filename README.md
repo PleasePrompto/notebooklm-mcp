@@ -2,7 +2,7 @@
 
 # NotebookLM MCP Server
 
-I fell in love with NotebookLM because it’s one of the best “RAG-style” research companions I’ve used. I used to upload docs, ask NotebookLM questions, then copy the answers back into Codex/Claude Code by hand. It worked, but it was clunky. So I built **notebooklm-mcp** so my code agents can talk to NotebookLM directly—no copy/paste, just grounded answers right inside the IDE chat.
+Connect Claude and Codex to Google's NotebookLM for grounded, source-based AI research.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-2025-green.svg)](https://modelcontextprotocol.io/)
@@ -13,192 +13,230 @@ I fell in love with NotebookLM because it’s one of the best “RAG-style” re
 
 ---
 
-## Why you might want this
+## What it does
 
-* **Grounded answers on demand** – the server drives a real Chrome session, so Gemini always cites from your NotebookLM notebooks.
-* **Agent-first flow** – speak naturally to Claude/Codex; it calls the MCP tools and every answer ends with a reminder to keep asking until the task is complete.
-* **No hallucinations** – NotebookLM only answers with what’s in your notebooks. Feed it good documentation and you’ll get accurate output.
-* **Library management** – add, update, remove, or search notebooks without leaving chat.
-* **Persistent auth** – Chrome profile keeps cookies/sessions; switch Google accounts whenever you like.
+This MCP server enables Claude Code and Codex to communicate directly with NotebookLM in an agentic way—turning them into genuine research assistants that iteratively query your documentation. When faced with complex tasks, your agent automatically asks NotebookLM multiple questions, reads the responses, identifies knowledge gaps, and asks follow-ups—just like a human researcher would. Each answer triggers deeper questions until comprehensive understanding is achieved.
 
-Free NotebookLM accounts allow **50 chat turns per day**. Hit the cap? Re-run auth setup with another Google account and keep going.
+Behind this is NotebookLM, Google's RAG-powered tool using Gemini. The key difference from traditional RAG: NotebookLM doesn't just retrieve text chunks—it generates intelligent, contextual answers. This creates a genuine AI-to-AI conversation where Claude/Codex asks questions and Gemini responds with synthesized knowledge from your docs. It answers exclusively from documents you upload—no hallucinations, just grounded information with citations. The server manages authentication, maintains conversation context across questions, and handles multiple notebook libraries seamlessly.
 
-> **💡 Cross-Client Sharing**: All MCP clients (Claude Code, Codex, etc.) share the same authentication and notebook library. Authenticate once, add notebooks once—switch between clients without re-login or re-adding notebooks.
-
-**Preparation checklist**
-1. Grab a Google account (throwaway is fine).
-2. Visit <https://notebooklm.google/> and click **Try NotebookLM**.
-3. Upload your docs via the **New** button. NotebookLM lets you store **100 notebooks**, each with **up to 50 sources** and roughly **500,000 words**—plenty for merged documentation sets.
-4. Share the notebook: Click **Share** (top right) → change **Notebook access** from "Restricted" to **"Anyone with the link"** → optionally restrict **Viewer permissions** to **"Chat only"** → click **Copy link**. Give this link to Claude/Codex so it can add the notebook to your library.
+I built this because copying answers between NotebookLM and my editor was getting tedious. But more importantly: **Now Claude/Codex knows exactly what questions to ask to get the knowledge it needs for the task.** It researches my documentation while writing code, and the whole workflow stays in one place.
 
 ---
 
-## Quick tour
+## Example: Real research in action
 
-| Task | Say this in chat | Under the hood |
-|------|------------------|----------------|
-| First-time login | “Open NotebookLM auth setup so I can sign in.” | Launches Chrome, waits for manual login, saves auth state. |
-| Health check | “Run the NotebookLM health check.” | Calls `get_health` and reports sessions/auth. |
-| Add a notebook | “Add this NotebookLM link to our library.” | Calls `add_notebook`, gathers metadata, confirms with you first. |
-| List notebooks | “Show me the notebooks we already stored.” | Calls `list_notebooks` and presents IDs/topics. |
-| Switch notebooks | “Use the React docs notebook for this.” | Calls `select_notebook`. |
-| Update notebook | “Rename the React notebook description to include Next.js 14.” | Calls `update_notebook` with the fields you approve. |
-| Remove notebook | “Remove the old React notebook from our library.” | Calls `remove_notebook` after confirmation. |
-| Deep research | “Plan the webhook workflow with NotebookLM before you answer.” | Iterative `ask_question` calls with the same session. |
-| Fix auth | “NotebookLM says I’m logged out—repair authentication.” | Runs `get_health` → `setup_auth` → `get_health`. |
-| Inspect library JSON | “Read `notebooklm://library`.” | Returns library metadata as JSON. |
+<details>
+<summary><b>See how Codex built a complete n8n workflow through research</b></summary>
 
-Every `ask_question` reply ends with:
-> EXTREMELY IMPORTANT: Is that ALL you need to know? …
-so the agent remembers to plan follow-up questions before it answers you.
+```
+Setup: Created NotebookLM notebook with complete n8n documentation
+Added to library: "Add https://notebooklm.google.com/notebook/[n8n-docs] to our library"
 
----
+User: "I want to create an n8n workflow that checks Gmail every morning,
+      sends new emails to ChatGPT for spam evaluation, then moves spam
+      to GPT_SPAM_DETECTOR folder. You don't know n8n, so research everything."
 
-## Conversation-led quick start
+Codex → NotebookLM: "How do I fetch new Gmail messages in n8n?"
+NotebookLM: "Use Gmail Trigger with polling, or Gmail node with Get Many operation..."
 
-### Conversation tips (inspired by the n8n workflow test)
-- **State the goal and share the notebook upfront.** Claude instantly knew to add the n8n documentation notebook before researching.
-- **Confirm library changes.** The agent asks before adding/updating/removing notebooks—say “yes/no” so your library stays tidy.
-- **Let the agent interrogate NotebookLM.** Each answer ends with the reminder to keep asking questions; encourage it to follow through before replying to you.
-- **Keep sessions scoped.** Start a new session for a new project so context doesn’t leak.
-- **Review the output.** Spot-check JSON, node types, connections—if something’s off, the agent can recheck the doc and fix it.
-- **Feed NotebookLM quality sources.** The answers are only as good as the docs you upload—no hallucinations, just your knowledge base.
+Codex → NotebookLM: "How to extract email body from Gmail API payload?"
+NotebookLM: "Body is base64url encoded in payload.parts, use Function node to decode..."
 
-1. **Install the MCP server**
+Codex → NotebookLM: "How to parse OpenAI response as JSON in IF node?"
+NotebookLM: "Set responseFormat to json, then use expression {{ $json.spam }} in IF condition..."
 
-   **Claude Code:**
-   ```bash
-   claude mcp add notebooklm npx notebooklm-mcp@latest
-   ```
+Codex → NotebookLM: "Which Gmail operations for adding label and removing from inbox?"
+NotebookLM: "Use addLabel operation with labelNamesOrIds array, then removeLabel for INBOX..."
 
-   **Codex:**
-   ```bash
-   codex mcp add notebooklm -- npx notebooklm-mcp@latest
-   ```
+Codex: "Based on my research, here's your complete workflow JSON..."
+[Delivered working spam_detector_workflow.json with all nodes properly configured]
+```
 
-   **Other MCP clients (manual config):**
-   ```json
-   {
-     "mcpServers": {
-       "notebooklm": {
-         "command": "npx",
-         "args": ["notebooklm-mcp@latest"]
-       }
-     }
-   }
-   ```
+The agent asked targeted follow-ups, building complete n8n expertise before generating the workflow.
 
-2. **Authenticate through chat**
-   * Ask your agent to “open NotebookLM auth setup”.
-   * Chrome opens; sign in with the Google account you want to use.
-   * When NotebookLM loads, close the window. Optionally ask it to run `get_health` to confirm.
-
-3. **Add notebooks as you go**
-   * Paste a NotebookLM link: “Add https://notebooklm.google.com/notebook/abc123 to our library.”
-   * The agent confirms metadata before writing to the library.
-
-4. **Research before answering**
-   * “Before you answer, research the n8n Gmail spam workflow in NotebookLM.”
-   * The agent keeps the same `session_id`, asks successive questions, reads the reminder, and only then replies.
-
-5. **Reauthenticate whenever needed**
-   * “Reauthenticate with a different Google account.”
-   * The server clears the profile, opens Chrome, and you sign in again.
+</details>
 
 ---
 
-## How it works under the hood
+## Installation
 
-* Real Chrome instance via Playwright (Patchright) keeps cookies, fingerprint, and session storage persistent.
-* `SessionManager` enforces timeouts, max sessions, and auto cleanup.
-* Library metadata (`library.json`) lives under `${CONFIG.dataDir}`.
-* Browser profile lives under `${CONFIG.chromeProfileDir}`; delete it to reset auth.
-* All tools are exposed through MCP—no built-in prompts or slash commands.
-* NotebookLM only answers from the notebooks you supply. If the info isn’t there, Gemini won’t invent it.
+### Claude Code
+```bash
+claude mcp add notebooklm npx notebooklm-mcp@latest
+```
+
+### Codex
+```bash
+codex mcp add notebooklm -- npx notebooklm-mcp@latest
+```
+
+<details>
+<summary>Other MCP clients</summary>
+
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "npx",
+      "args": ["notebooklm-mcp@latest"]
+    }
+  }
+}
+```
+</details>
 
 ---
 
-## Data Storage & Cross-Platform Support
+## Quick Start
 
-**Shared State Architecture**: All MCP clients (Claude Code, Codex, etc.) share the same authentication, notebooks, and browser state. Authenticate once, add notebooks once, and they're available everywhere.
+### 1. Prepare your notebook
 
-### Storage Locations
+Visit [notebooklm.google.com](https://notebooklm.google.com/) and create a notebook with your documentation. NotebookLM accepts PDFs, websites, Google Docs, YouTube videos, and more.
 
-All data is stored in platform-specific directories using [env-paths](https://github.com/sindresorhus/env-paths):
+To share: **Share** → **Notebook access** → **"Anyone with the link"** → **Copy link**
 
-| Platform | Base Path |
-|----------|-----------|
-| **Linux** | `~/.local/share/notebooklm-mcp/` |
-| **macOS** | `~/Library/Application Support/notebooklm-mcp/` |
-| **Windows** | `%LOCALAPPDATA%\notebooklm-mcp\` |
+### 2. Authenticate
 
-### What's Stored
+```
+"Open NotebookLM auth setup"
+```
 
-* **Chrome Profile** (`chrome_profile/`) – Browser cookies, session storage, fingerprint (persistent across restarts)
-* **Notebook Library** (`library.json`) – All notebooks you've added with metadata
-* **Browser State** (`browser_state/`) – Auth snapshots (legacy/fallback)
-* **Isolated Instances** (`chrome_profile_instances/`) – Temporary profiles for concurrent MCP server instances
+Chrome opens for Google sign-in. The window closes automatically once authenticated. Your session persists in the Chrome profile.
 
-### Platform Support
+### 3. Add notebooks (optional)
 
-* **Linux**: ✅ Fully tested and production-ready
-* **macOS**: Should work (dependencies support it, but not extensively tested)
-* **Windows**: Untested (technically compatible, but no guarantees)
+You can use notebooks directly without adding them to the library:
+```
+"Answer how webhooks work. Documentation is here: [notebooklm-link]"
+```
+
+Or add them to the library for automatic usage:
+```
+"Add this NotebookLM link to our library: [your-link]"
+```
+
+**Why use the library?** Your agent automatically recognizes relevant notebooks by their tags and metadata. When you work on an API, it will automatically use the corresponding notebook without being asked.
+
+### 4. Research
+
+```
+"Research the webhook implementation in NotebookLM before writing the code"
+```
+
+Your agent will ask multiple questions, gather context, and synthesize a complete understanding.
+
+---
+
+## Key Features
+
+### Iterative research sessions
+The server maintains conversation context with session IDs, enabling your agent to ask follow-up questions based on previous answers. Each response includes a reminder prompt that pushes the agent to dig deeper until fully understanding the topic.
+
+### Smart notebook library
+Store multiple NotebookLM notebooks with tags and metadata. Your agent automatically selects relevant notebooks based on the task at hand. Working on an API? It knows to use your API documentation notebook without being told.
+
+### Direct or managed notebooks
+Use notebooks on-the-fly by providing links in your request, or add them to the library for automatic selection. The server handles both patterns seamlessly.
+
+### Persistent browser automation
+Real Chrome instance maintains cookies, sessions, and auth state across restarts. Once authenticated, your session persists—no daily re-login needed.
+
+### Cross-client sharing
+All MCP clients (Claude Code, Codex, etc.) share the same authentication and notebook library. Set up once, use everywhere. Switch between clients mid-task without losing context.
+
+### Scale & flexibility
+- Manage 100 notebooks in your library
+- Each notebook: 50 sources, ~500,000 words
+- 50 free queries daily per Google account
+- Quick account switching for unlimited research
+
+### Account protection
+Built-in humanization features help protect your Google accounts: randomized typing speeds, natural mouse movements, realistic delays between actions. The server mimics human behavior to reduce detection risk.
+
+---
+
+## How it works
+
+The server runs a real Chrome instance via Playwright, maintaining cookies and session state in a persistent profile. When you authenticate, it saves the browser state to `~/.local/share/notebooklm-mcp/chrome_profile/` (Linux) or equivalent on other platforms.
+
+Each research query maintains a session ID for context. The server reminds your agent to ask follow-up questions, creating genuine research sessions rather than one-shot queries.
+
+Your notebook library lives in `library.json`, separate from NotebookLM itself. This lets you organize notebooks locally while NotebookLM handles the document processing.
+
+---
+
+## Common patterns
+
+| Intent | Say | Result |
+|--------|-----|--------|
+| Authenticate | "Open NotebookLM auth setup" | Chrome opens for login |
+| Add notebook | "Add [link] to library" | Saves notebook metadata |
+| List notebooks | "Show our notebooks" | Lists all saved notebooks |
+| Switch context | "Use the API docs notebook" | Changes active notebook |
+| Deep research | "Research this thoroughly in NotebookLM" | Multi-question session |
+| Fix auth | "Repair NotebookLM authentication" | Clears and re-authenticates |
+
+---
+
+## Configuration
+
+<details>
+<summary>Environment variables</summary>
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HEADLESS` | `true` | Run Chrome invisibly |
+| `MAX_SESSIONS` | `10` | Concurrent research sessions |
+| `SESSION_TIMEOUT` | `900` | Seconds before session cleanup |
+| `STEALTH_ENABLED` | `true` | Human-like interaction patterns |
+
+Full configuration in [`docs/configuration.md`](./docs/configuration.md).
+
+</details>
+
+<details>
+<summary>Storage locations</summary>
+
+| Platform | Path |
+|----------|------|
+| Linux | `~/.local/share/notebooklm-mcp/` |
+| macOS | `~/Library/Application Support/notebooklm-mcp/` |
+| Windows | `%LOCALAPPDATA%\notebooklm-mcp\` |
+
+Stores Chrome profile, library.json, and browser state.
+
+</details>
 
 ---
 
 ## FAQ
 
-**Can I trust the auth flow?**
-Yes. Chrome runs locally, and the server never handles your Google credentials beyond Playwright's APIs. Use a dedicated account if you prefer.
+**Is my Google account secure?**
+Chrome runs locally. Credentials never leave your machine. The persistent profile stores session data like any browser would.
 
-**What happens when NotebookLM hits the 50-query limit?**
-You'll see a rate-limit error. Ask the agent to reopen auth setup with another account or wait until the next day. The free tier allows 50 chat turns/day—swap accounts via auth setup when you hit the cap.
+**What happens at the rate limit?**
+Free tier allows 50 queries daily. Re-authenticate with another account or wait until tomorrow.
 
-**Do I need to manage session IDs manually?**
-Claude/Codex usually keep it for you. If you call tools manually, capture the first `session_id` and reuse it for follow-ups.
-
-**Can I show the browser while the agent runs?**
-Yes—set `show_browser: true` on `ask_question`, or ask the agent to toggle it for debugging.
-
-**Does the server still ship prompts or slash commands?**
-No. Everything is driven by natural-language instructions.
-
-**How do I keep the agent on track?**
-Share the notebook link, grant permission for library edits, and remind it to plan with NotebookLM before replying—just like in the n8n workflow example above.
+**Can I see the browser?**
+Just tell your agent to show the browser when researching: "Research this and show me the browser." You'll see the live chat with NotebookLM.
 
 **What if Chrome crashes?**
-The next `ask_question` recreates the browser context automatically.
-
-**What if authentication fails?**
-Ask the agent to repair auth—it will run `get_health`, reopen Chrome, and verify again.
-
-**Should I back up my data?**
-Yes—back up `library.json` (see Data Storage section above for location) if you switch machines or want to preserve your notebook library.
-
----
-
-## Configuration highlights
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `NOTEBOOK_URL` | `""` | Legacy default notebook (library usage is recommended instead). |
-| `AUTO_LOGIN_ENABLED` | `false` | Enable scripted login (requires `LOGIN_EMAIL` + `LOGIN_PASSWORD`). |
-| `HEADLESS` | `true` | Run Chrome headless (agents can override with `show_browser`). |
-| `MAX_SESSIONS` | `10` | Maximum concurrent NotebookLM sessions. |
-| `SESSION_TIMEOUT` | `900` | Inactive seconds before a session auto-closes. |
-| `STEALTH_ENABLED` | `true` | Human-like typing/mouse behaviour. |
-
-See [`docs/configuration.md`](./docs/configuration.md) for the full list (profile strategy, typing speeds, cleanup settings, etc.).
+The server automatically recreates the browser context on the next query.
 
 ---
 
 ## Documentation
 
-* [`docs/quickstart.md`](./docs/quickstart.md) – conversational setup.
-* [`docs/tools.md`](./docs/tools.md) – tool/resource reference.
-* [`docs/troubleshooting.md`](./docs/troubleshooting.md) – common issues & fixes.
-* [`NOTEBOOKLM_USAGE.md`](./NOTEBOOKLM_USAGE.md) – chat scenarios and phrases.
+- [`docs/usage-guide.md`](./docs/usage-guide.md) – Advanced patterns and workflows
+- [`docs/tools.md`](./docs/tools.md) – Tool API reference
+- [`docs/troubleshooting.md`](./docs/troubleshooting.md) – Common issues
+- [`docs/configuration.md`](./docs/configuration.md) – All configuration options
+
+---
+
+## Disclaimer
+
+While I've built in humanization features to make the browser automation more natural, I can't guarantee Google won't flag automated usage. Use at your own discretion—I recommend dedicated accounts for automation rather than your primary Google account. Think of it like web scraping: probably fine, but play it safe!
 
 ---
 

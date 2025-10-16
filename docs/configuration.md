@@ -22,9 +22,14 @@ Environment variables (optional)
   - `NOTEBOOK_DESCRIPTION`, `NOTEBOOK_TOPICS`, `NOTEBOOK_CONTENT_TYPES`, `NOTEBOOK_USE_CASES`
   - `NOTEBOOK_URL` — optional; leave empty and manage notebooks via the library
 
-Paths
-- Data: `~/.notebooklm-mcp/data`
-- Browser state: `~/.notebooklm-mcp/browser_state`
-- Chrome base profile: `~/.notebooklm-mcp/chrome_profile`
-- Chrome instance profiles: `~/.notebooklm-mcp/chrome_profile_instances`
+Paths (using [env-paths](https://github.com/sindresorhus/env-paths))
+- **Linux**: `~/.local/share/notebooklm-mcp/`
+- **macOS**: `~/Library/Application Support/notebooklm-mcp/`
+- **Windows**: `%LOCALAPPDATA%\notebooklm-mcp\`
+
+Subdirectories:
+- Chrome profile: `chrome_profile/`
+- Browser state: `browser_state/`
+- Library: `library.json`
+- Chrome instances: `chrome_profile_instances/`
 
