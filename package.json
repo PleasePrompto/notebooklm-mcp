@@ -1,0 +1,45 @@
+{
+  "name": "notebooklm-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for NotebookLM API with session support and human-like behavior",
+  "type": "module",
+  "bin": {
+    "notebooklm-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "dev": "tsx watch src/index.ts",
+    "prepare": "npm run build",
+    "test": "tsx src/index.ts",
+    "postinstall": "node ./dist/postinstall.js || true"
+  },
+  "keywords": [
+    "mcp",
+    "notebooklm",
+    "gemini",
+    "ai",
+    "claude"
+  ],
+  "author": "Gérôme Dexheimer <hello@geromedexheimer.de> (https://github.com/PleasePrompto)",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.4.0",
+    "env-paths": "^3.0.0",
+    "patchright": "^1.48.2",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

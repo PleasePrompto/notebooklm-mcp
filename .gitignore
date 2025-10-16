@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+
+# Data directories (auth & sessions)
+data/
+browser_state/
+chrome_profile/
+.notebooklm-mcp/
+.claude/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+screenshots/
+
+# Archives / local notes
+*.tar.gz
+mcp-add-command.txt
+package-lock.json
+
+# Python (from old version)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
