@@ -23,9 +23,20 @@
   ],
   "author": "Gérôme Dexheimer <hello@geromedexheimer.de> (https://github.com/PleasePrompto)",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PleasePrompto/notebooklm-mcp.git"
+  },
+  "homepage": "https://github.com/PleasePrompto/notebooklm-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/PleasePrompto/notebooklm-mcp/issues"
+  },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "NOTEBOOKLM_USAGE.md",
+    "LICENSE",
+    "docs"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
