@@ -64,20 +64,25 @@ so the agent remembers to plan follow-up questions before it answers you.
 - **Review the output.** Spot-check JSON, node types, connections—if something’s off, the agent can recheck the doc and fix it.
 - **Feed NotebookLM quality sources.** The answers are only as good as the docs you upload—no hallucinations, just your knowledge base.
 
-1. **Install & register the server**
+1. **Install the MCP server**
+
+   **Claude Code:**
    ```bash
-   npm install -g notebooklm-mcp   # or run with npx notebooklm-mcp
+   claude mcp add notebooklm npx notebooklm-mcp@latest
    ```
-   Configure your MCP host, for example:
+
+   **Codex:**
+   ```bash
+   codex mcp add notebooklm -- npx notebooklm-mcp@latest
+   ```
+
+   **Other MCP clients (manual config):**
    ```json
    {
      "mcpServers": {
        "notebooklm": {
          "command": "npx",
-         "args": ["notebooklm-mcp"],
-         "env": {
-           "AUTO_LOGIN_ENABLED": "false"
-         }
+         "args": ["notebooklm-mcp@latest"]
        }
      }
    }
