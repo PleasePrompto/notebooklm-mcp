@@ -4,8 +4,16 @@ Environment variables (optional)
 - Auth
   - `AUTO_LOGIN_ENABLED` — `true|false` (default `false`)
   - `LOGIN_EMAIL`, `LOGIN_PASSWORD` — for auto‑login if enabled
+  - `AUTO_LOGIN_TIMEOUT_MS` (default `120000`)
+- Stealth / Human-like behavior
+  - `STEALTH_ENABLED` — `true|false` (default `true`) — Master switch for all stealth features
+  - `STEALTH_RANDOM_DELAYS` — `true|false` (default `true`)
+  - `STEALTH_HUMAN_TYPING` — `true|false` (default `true`)
+  - `STEALTH_MOUSE_MOVEMENTS` — `true|false` (default `true`)
 - Typing speed (human‑like)
   - `TYPING_WPM_MIN` (default 160), `TYPING_WPM_MAX` (default 240)
+- Delays (human‑like)
+  - `MIN_DELAY_MS` (default 100), `MAX_DELAY_MS` (default 400)
 - Browser
   - `HEADLESS` (default `true`), `BROWSER_TIMEOUT` (ms, default `30000`)
 - Sessions

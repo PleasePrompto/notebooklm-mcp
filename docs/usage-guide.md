@@ -8,7 +8,7 @@ This guide covers advanced usage patterns, best practices, and detailed examples
 
 ### The Iterative Research Pattern
 
-The server is designed to make your agent work **agentically** with NotebookLM. Here's how to leverage this:
+The server is designed to make your agent **ask questions automatically** with NotebookLM. Here's how to leverage this:
 
 1. **Start with broad context**
    ```
@@ -242,4 +242,4 @@ Agent: "According to our architecture guidelines..."
 
 ---
 
-Remember: The power of this integration lies in letting your agent act as a **real researcher** – asking multiple questions, gathering context, and building comprehensive understanding before responding. Don't rush the research phase!
+Remember: The power of this integration lies in letting your agent **ask multiple questions** – gathering context and building comprehensive understanding before responding. Don't rush the research phase!
