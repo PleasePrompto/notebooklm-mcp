@@ -2,7 +2,7 @@
 
 # NotebookLM MCP Server
 
-An MCP server that enables Claude Code and Codex to communicate directly with Google's NotebookLM.
+An MCP server that enables Claude Code, Codex, Cursor, and other MCP clients to communicate directly with [**Google's NotebookLM**](https://notebooklm.google/).
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-2025-green.svg)](https://modelcontextprotocol.io/)
@@ -19,7 +19,7 @@ I've been using AI assistants for a long time to work with documentation—uploa
 
 [**NotebookLM**](https://notebooklm.google/) is Google's AI-powered research assistant (powered by Gemini) that solves this. It has one killer feature: **it only responds based on the documentation you upload**. If something cannot be found in the information base, it doesn't respond. No hallucinations, just grounded information with citations.
 
-But I was getting tired of the copy-paste dance between NotebookLM and my editor. So I built this MCP server to let Claude and Codex communicate directly with NotebookLM. Now my AI assistant asks NotebookLM the questions it needs while writing code, and everything stays in one place.
+But I was getting tired of the copy-paste dance between NotebookLM and my editor. So I built this MCP server to let Claude Code, Codex, Cursor, and other MCP clients communicate directly with NotebookLM. Now my AI assistant asks NotebookLM the questions it needs while writing code, and everything stays in one place.
 
 ---
 
@@ -36,8 +36,49 @@ codex mcp add notebooklm -- npx notebooklm-mcp@latest
 ```
 
 <details>
+<summary>Gemini</summary>
+
+```bash
+gemini mcp add notebooklm npx notebooklm-mcp@latest
+```
+</details>
+
+<details>
+<summary>Cursor</summary>
+
+Add to `~/.cursor/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "npx",
+      "args": ["-y", "notebooklm-mcp@latest"]
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary>amp</summary>
+
+```bash
+amp mcp add notebooklm -- npx notebooklm-mcp@latest
+```
+</details>
+
+<details>
+<summary>VS Code</summary>
+
+```bash
+code --add-mcp '{"name":"notebooklm","command":"npx","args":["notebooklm-mcp@latest"]}'
+```
+</details>
+
+<details>
 <summary>Other MCP clients</summary>
 
+**Generic MCP config:**
 ```json
 {
   "mcpServers": {
