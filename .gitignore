@@ -36,7 +36,6 @@ screenshots/
 # Archives / local notes
 *.tar.gz
 mcp-add-command.txt
-package-lock.json
 
 # Python (from old version)
 __pycache__/

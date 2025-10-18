@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Ensures binary has executable permissions after compilation
   - Fixes installation issue where users couldn't run the MCP server
 
+### Repository
+- **Added package-lock.json** - Committed lockfile to repository for reproducible builds
+  - Ensures consistent dependency versions across all environments
+  - Improves contributor experience with identical development setup
+  - Enables `npm ci` for faster, reliable installations in CI/CD
+  - Follows npm best practices for library development (2025)
+
 ## [1.1.0] - 2025-10-18
 
 ### Added
