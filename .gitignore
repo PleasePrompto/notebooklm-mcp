@@ -15,6 +15,7 @@ browser_state/
 chrome_profile/
 .notebooklm-mcp/
 .claude/
+CLAUDE.md
 
 # IDE
 .vscode/
