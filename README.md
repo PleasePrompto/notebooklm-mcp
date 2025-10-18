@@ -8,6 +8,7 @@ An MCP server that enables Claude Code, Codex, Cursor, and other MCP clients to 
 [![MCP](https://img.shields.io/badge/MCP-2025-green.svg)](https://modelcontextprotocol.io/)
 [![npm](https://img.shields.io/npm/v/notebooklm-mcp.svg)](https://www.npmjs.com/package/notebooklm-mcp)
 [![GitHub](https://img.shields.io/github/stars/PleasePrompto/notebooklm-mcp?style=social)](https://github.com/PleasePrompto/notebooklm-mcp)
+[![Changelog](https://img.shields.io/badge/changelog-1.1.0-blue)](https://github.com/PleasePrompto/notebooklm-mcp/blob/main/CHANGELOG.md)
 
 </div>
 
@@ -186,6 +187,9 @@ Once authenticated, your Chrome session stays active. No need to log in every da
 ### Cross-client sharing
 Set up once in Claude Code, use it in Codex too. All clients share the same auth and library.
 
+### Deep cleanup tool
+Start fresh anytime: Scans your entire system for all NotebookLM data (caches, logs, temp files) and removes it with a categorized preview. Perfect for troubleshooting or clean reinstalls.
+
 ### Scale & flexibility
 - Manage 100 notebooks in your library
 - Each notebook: 50 sources, ~500,000 words
@@ -203,6 +207,7 @@ Set up once in Claude Code, use it in Codex too. All clients share the same auth
 | List notebooks | "Show our notebooks" | Lists all saved notebooks |
 | Research first | "Research this in NotebookLM before coding" | Multi-question session |
 | Fix auth | "Repair NotebookLM authentication" | Clears and re-authenticates |
+| Clean restart | "Run NotebookLM cleanup" | Removes all data for fresh start |
 
 ---
 
@@ -220,12 +225,30 @@ Yes! Just tell Claude: "Research this and show me the browser." You'll see the l
 **What if Chrome crashes?**
 The server automatically recreates the browser context on the next query.
 
+**Having issues? Try a clean start**
+Run the cleanup tool to remove all NotebookLM data and start fresh while preserving your notebook library.
+
+**What to say:** "Run NotebookLM cleanup and preserve my library"
+
+**What happens:**
+1. You'll see a categorized preview of exactly what will be deleted (browser data, caches, logs, old installation files)
+2. Your notebook library stays intact - no need to re-add notebooks
+3. After cleanup, just re-authenticate for a completely fresh browser session
+
+**Important:** Close all Chrome/Chromium instances before cleanup!
+
+**Useful for:** Authentication issues, browser conflicts, corrupted data, or when switching accounts.
+
 ---
 
 ## Configuration
 
+**No config files needed!** Everything works out of the box with sensible defaults.
+
+For advanced users: customize via environment variables or tool parameters (`show_browser`, etc.)
+
 <details>
-<summary>Environment variables</summary>
+<summary>Environment variables (optional)</summary>
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
@@ -262,15 +285,29 @@ Stores Chrome profile, library.json, and browser state.
 
 ---
 
-## Built for Myself
+## Disclaimer
 
-I built this for myself because I was tired of the copy-paste dance, but figured others might find it useful too. Questions welcome!
+This tool automates browser interactions with NotebookLM to make your workflow more efficient. However, a few friendly reminders:
+
+**About browser automation:**
+While I've built in humanization features (realistic typing speeds, natural delays, mouse movements) to make the automation behave more naturally, I can't guarantee Google won't detect or flag automated usage. I recommend using a dedicated Google account for automation rather than your primary account—think of it like web scraping: probably fine, but better safe than sorry!
+
+**About CLI tools and AI agents:**
+CLI tools like Claude Code, Codex, and similar AI-powered assistants are incredibly powerful, but they can make mistakes. Please use them with care and awareness:
+- Always review changes before committing or deploying
+- Test in safe environments first
+- Keep backups of important work
+- Remember: AI agents are assistants, not infallible oracles
+
+I built this tool for myself because I was tired of the copy-paste dance between NotebookLM and my editor. I'm sharing it in the hope it helps others too, but I can't take responsibility for any issues, data loss, or account problems that might occur. Use at your own discretion and judgment.
+
+That said, if you run into problems or have questions, feel free to open an issue on GitHub. I'm happy to help troubleshoot!
 
 ---
 
-## Disclaimer
+## Changelog
 
-While I've built in humanization features to make the browser automation more natural, I can't guarantee Google won't flag automated usage. Use at your own discretion—I recommend dedicated accounts for automation rather than your primary Google account. Think of it like web scraping: probably fine, but play it safe!
+See [CHANGELOG.md](CHANGELOG.md) for version history and updates.
 
 ---
 

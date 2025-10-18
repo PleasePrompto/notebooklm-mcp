@@ -66,15 +66,26 @@ export class AuthManager {
       if (page) {
         try {
           const sessionStorageData: string = await page.evaluate((): string => {
-            // @ts-expect-error - window exists in browser context
-            return JSON.stringify(window.sessionStorage);
+            // Properly extract sessionStorage as a plain object
+            const storage: Record<string, string> = {};
+            // @ts-expect-error - sessionStorage exists in browser context
+            for (let i = 0; i < sessionStorage.length; i++) {
+              // @ts-expect-error - sessionStorage exists in browser context
+              const key = sessionStorage.key(i);
+              if (key) {
+                // @ts-expect-error - sessionStorage exists in browser context
+                storage[key] = sessionStorage.getItem(key) || '';
+              }
+            }
+            return JSON.stringify(storage);
           });
 
           await fs.writeFile(this.sessionFilePath, sessionStorageData, {
             encoding: "utf-8",
           });
 
-          log.success("✅ Browser state saved (incl. sessionStorage)");
+          const entries = Object.keys(JSON.parse(sessionStorageData)).length;
+          log.success(`✅ Browser state saved (incl. sessionStorage: ${entries} entries)`);
         } catch (error) {
           log.warning(`⚠️  State saved, but sessionStorage failed: ${error}`);
         }

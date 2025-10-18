@@ -16,7 +16,7 @@ import { SessionManager } from "../session/session-manager.js";
 import { AuthManager } from "../auth/auth-manager.js";
 import { NotebookLibrary } from "../library/notebook-library.js";
 import type { AddNotebookInput, UpdateNotebookInput } from "../library/types.js";
-import { CONFIG } from "../config.js";
+import { CONFIG, applyBrowserOptions, type BrowserOptions } from "../config.js";
 import { log } from "../utils/logger.js";
 import type {
   AskQuestionResult,
@@ -25,6 +25,7 @@ import type {
   ProgressCallback,
 } from "../types.js";
 import { RateLimitError } from "../errors.js";
+import { CleanupManager } from "../utils/cleanup-manager.js";
 
 const FOLLOW_UP_REMINDER =
   "\n\nEXTREMELY IMPORTANT: Is that ALL you need to know? You can always ask another question using the same session ID! Think about it carefully: before you reply to the user, review their original request and this answer. If anything is still unclear or missing, ask me another question first.";
@@ -170,8 +171,80 @@ export function buildToolDefinitions(library: NotebookLibrary): Tool[] {
           show_browser: {
             type: "boolean",
             description:
-              "Optional: Show browser window for debugging (overrides HEADLESS setting). " +
-              "Use this when troubleshooting authentication issues or observing browser behavior.",
+              "Show browser window for debugging (simple version). " +
+              "For advanced control (typing speed, stealth, etc.), use browser_options instead.",
+          },
+          browser_options: {
+            type: "object",
+            description:
+              "Optional browser behavior settings. Claude can control everything: " +
+              "visibility, typing speed, stealth mode, timeouts. Useful for debugging or fine-tuning.",
+            properties: {
+              show: {
+                type: "boolean",
+                description: "Show browser window (default: from ENV or false)",
+              },
+              headless: {
+                type: "boolean",
+                description: "Run browser in headless mode (default: true)",
+              },
+              timeout_ms: {
+                type: "number",
+                description: "Browser operation timeout in milliseconds (default: 30000)",
+              },
+              stealth: {
+                type: "object",
+                description: "Human-like behavior settings to avoid detection",
+                properties: {
+                  enabled: {
+                    type: "boolean",
+                    description: "Master switch for all stealth features (default: true)",
+                  },
+                  random_delays: {
+                    type: "boolean",
+                    description: "Random delays between actions (default: true)",
+                  },
+                  human_typing: {
+                    type: "boolean",
+                    description: "Human-like typing patterns (default: true)",
+                  },
+                  mouse_movements: {
+                    type: "boolean",
+                    description: "Realistic mouse movements (default: true)",
+                  },
+                  typing_wpm_min: {
+                    type: "number",
+                    description: "Minimum typing speed in WPM (default: 160)",
+                  },
+                  typing_wpm_max: {
+                    type: "number",
+                    description: "Maximum typing speed in WPM (default: 240)",
+                  },
+                  delay_min_ms: {
+                    type: "number",
+                    description: "Minimum delay between actions in ms (default: 100)",
+                  },
+                  delay_max_ms: {
+                    type: "number",
+                    description: "Maximum delay between actions in ms (default: 400)",
+                  },
+                },
+              },
+              viewport: {
+                type: "object",
+                description: "Browser viewport size",
+                properties: {
+                  width: {
+                    type: "number",
+                    description: "Viewport width in pixels (default: 1920)",
+                  },
+                  height: {
+                    type: "number",
+                    description: "Viewport height in pixels (default: 1080)",
+                  },
+                },
+              },
+            },
           },
         },
         required: ["question"],
@@ -468,7 +541,9 @@ User: "Yes" → call remove_notebook`,
       name: "get_health",
       description:
         "Get server health status including authentication state, active sessions, and configuration. " +
-        "Use this to verify the server is ready before starting research workflows.",
+        "Use this to verify the server is ready before starting research workflows.\n\n" +
+        "If authenticated=false and having persistent issues:\n" +
+        "Consider running cleanup_data(preserve_library=true) + setup_auth for fresh start with clean browser session.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -481,15 +556,40 @@ User: "Yes" → call remove_notebook`,
         "Returns immediately after opening the browser. You have up to 10 minutes to complete the login. " +
         "Use 'get_health' tool afterwards to verify authentication was saved successfully. " +
         "Use this for first-time authentication or when auto-login credentials are not available. " +
-        "For switching accounts or rate-limit workarounds, use 're_auth' tool instead.",
+        "For switching accounts or rate-limit workarounds, use 're_auth' tool instead.\n\n" +
+        "TROUBLESHOOTING for persistent auth issues:\n" +
+        "If setup_auth fails or you encounter browser/session issues:\n" +
+        "1. Ask user to close ALL Chrome/Chromium instances\n" +
+        "2. Run cleanup_data(confirm=true, preserve_library=true) to clean old data\n" +
+        "3. Run setup_auth again for fresh start\n" +
+        "This helps resolve conflicts from old browser sessions and installation data.",
       inputSchema: {
         type: "object",
         properties: {
           show_browser: {
             type: "boolean",
             description:
-              "Optional: Show browser window during authentication (overrides HEADLESS setting). " +
-              "Defaults to true for setup_auth. Set to false only if you want headless authentication.",
+              "Show browser window (simple version). Default: true for setup. " +
+              "For advanced control, use browser_options instead.",
+          },
+          browser_options: {
+            type: "object",
+            description:
+              "Optional browser settings. Control visibility, timeouts, and stealth behavior.",
+            properties: {
+              show: {
+                type: "boolean",
+                description: "Show browser window (default: true for setup)",
+              },
+              headless: {
+                type: "boolean",
+                description: "Run browser in headless mode (default: false for setup)",
+              },
+              timeout_ms: {
+                type: "number",
+                description: "Browser operation timeout in milliseconds (default: 30000)",
+              },
+            },
           },
         },
       },
@@ -506,16 +606,85 @@ User: "Yes" → call remove_notebook`,
         "1. Close all active browser sessions\n" +
         "2. Delete all saved authentication data (cookies, Chrome profile)\n" +
         "3. Open browser for fresh Google login\n\n" +
-        "After completion, use 'get_health' to verify authentication.",
+        "After completion, use 'get_health' to verify authentication.\n\n" +
+        "TROUBLESHOOTING for persistent auth issues:\n" +
+        "If re_auth fails repeatedly:\n" +
+        "1. Ask user to close ALL Chrome/Chromium instances\n" +
+        "2. Run cleanup_data(confirm=false, preserve_library=true) to preview old files\n" +
+        "3. Run cleanup_data(confirm=true, preserve_library=true) to clean everything except library\n" +
+        "4. Run re_auth again for completely fresh start\n" +
+        "This removes old installation data and browser sessions that can cause conflicts.",
       inputSchema: {
         type: "object",
         properties: {
           show_browser: {
             type: "boolean",
             description:
-              "Optional: Show browser window during authentication. Defaults to true.",
+              "Show browser window (simple version). Default: true for re-auth. " +
+              "For advanced control, use browser_options instead.",
+          },
+          browser_options: {
+            type: "object",
+            description:
+              "Optional browser settings. Control visibility, timeouts, and stealth behavior.",
+            properties: {
+              show: {
+                type: "boolean",
+                description: "Show browser window (default: true for re-auth)",
+              },
+              headless: {
+                type: "boolean",
+                description: "Run browser in headless mode (default: false for re-auth)",
+              },
+              timeout_ms: {
+                type: "number",
+                description: "Browser operation timeout in milliseconds (default: 30000)",
+              },
+            },
           },
         },
+      },
+    },
+    {
+      name: "cleanup_data",
+      description:
+        "ULTRATHINK Deep Cleanup - Scans entire system for ALL NotebookLM MCP data files across 8 categories. Always runs in deep mode, shows categorized preview before deletion.\n\n" +
+        "⚠️ CRITICAL: Close ALL Chrome/Chromium instances BEFORE running this tool! Open browsers can prevent cleanup and cause issues.\n\n" +
+        "Categories scanned:\n" +
+        "1. Legacy Installation (notebooklm-mcp-nodejs) - Old paths with -nodejs suffix\n" +
+        "2. Current Installation (notebooklm-mcp) - Active data, browser profiles, library\n" +
+        "3. NPM/NPX Cache - Cached installations from npx\n" +
+        "4. Claude CLI MCP Logs - MCP server logs from Claude CLI\n" +
+        "5. Temporary Backups - Backup directories in system temp\n" +
+        "6. Claude Projects Cache - Project-specific cache (optional)\n" +
+        "7. Editor Logs (Cursor/VSCode) - MCP logs from code editors (optional)\n" +
+        "8. Trash Files - Deleted notebooklm files in system trash (optional)\n\n" +
+        "Works cross-platform (Linux, Windows, macOS). Safe by design: shows detailed preview before deletion, requires explicit confirmation.\n\n" +
+        "LIBRARY PRESERVATION: Set preserve_library=true to keep your notebook library.json file while cleaning everything else.\n\n" +
+        "RECOMMENDED WORKFLOW for fresh start:\n" +
+        "1. Ask user to close ALL Chrome/Chromium instances\n" +
+        "2. Run cleanup_data(confirm=false, preserve_library=true) to preview\n" +
+        "3. Run cleanup_data(confirm=true, preserve_library=true) to execute\n" +
+        "4. Run setup_auth or re_auth for fresh browser session\n\n" +
+        "Use cases: Clean reinstall, troubleshooting auth issues, removing all traces before uninstall, cleaning old browser sessions and installation data.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          confirm: {
+            type: "boolean",
+            description:
+              "Confirmation flag. Tool shows preview first, then user confirms deletion. " +
+              "Set to true only after user has reviewed the preview and explicitly confirmed.",
+          },
+          preserve_library: {
+            type: "boolean",
+            description:
+              "Preserve library.json file during cleanup. Default: false. " +
+              "Set to true to keep your notebook library while deleting everything else (browser data, caches, logs).",
+            default: false,
+          },
+        },
+        required: ["confirm"],
       },
     },
   ];
@@ -545,10 +714,11 @@ export class ToolHandlers {
       notebook_id?: string;
       notebook_url?: string;
       show_browser?: boolean;
+      browser_options?: BrowserOptions;
     },
     sendProgress?: ProgressCallback
   ): Promise<ToolResult<AskQuestionResult>> {
-    const { question, session_id, notebook_id, notebook_url, show_browser } = args;
+    const { question, session_id, notebook_id, notebook_url, show_browser, browser_options } = args;
 
     log.info(`🔧 [TOOL] ask_question called`);
     log.info(`  Question: "${question.substring(0, 100)}..."`);
@@ -589,12 +759,29 @@ export class ToolHandlers {
       // Progress: Getting or creating session
       await sendProgress?.("Getting or creating browser session...", 1, 5);
 
-      // Get or create session (with optional browser visibility override)
-      const session = await this.sessionManager.getOrCreateSession(
-        session_id,
-        resolvedNotebookUrl,
-        show_browser
-      );
+      // Apply browser options temporarily
+      const originalConfig = { ...CONFIG };
+      const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
+      Object.assign(CONFIG, effectiveConfig);
+
+      // Calculate overrideHeadless parameter for session manager
+      // show_browser takes precedence over browser_options.headless
+      let overrideHeadless: boolean | undefined = undefined;
+      if (show_browser !== undefined) {
+        overrideHeadless = show_browser;
+      } else if (browser_options?.show !== undefined) {
+        overrideHeadless = browser_options.show;
+      } else if (browser_options?.headless !== undefined) {
+        overrideHeadless = !browser_options.headless;
+      }
+
+      try {
+        // Get or create session (with headless override to handle mode changes)
+        const session = await this.sessionManager.getOrCreateSession(
+          session_id,
+          resolvedNotebookUrl,
+          overrideHeadless
+        );
 
       // Progress: Asking question
       await sendProgress?.("Asking question to NotebookLM...", 2, 5);
@@ -619,14 +806,18 @@ export class ToolHandlers {
         },
       };
 
-      // Progress: Complete
-      await sendProgress?.("Question answered successfully!", 5, 5);
+        // Progress: Complete
+        await sendProgress?.("Question answered successfully!", 5, 5);
 
-      log.success(`✅ [TOOL] ask_question completed successfully`);
-      return {
-        success: true,
-        data: result,
-      };
+        log.success(`✅ [TOOL] ask_question completed successfully`);
+        return {
+          success: true,
+          data: result,
+        };
+      } finally {
+        // Restore original CONFIG
+        Object.assign(CONFIG, originalConfig);
+      }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -821,6 +1012,7 @@ export class ToolHandlers {
       headless: boolean;
       auto_login_enabled: boolean;
       stealth_enabled: boolean;
+      troubleshooting_tip?: string;
     }>
   > {
     log.info(`🔧 [TOOL] get_health called`);
@@ -844,6 +1036,12 @@ export class ToolHandlers {
         headless: CONFIG.headless,
         auto_login_enabled: CONFIG.autoLoginEnabled,
         stealth_enabled: CONFIG.stealthEnabled,
+        // Add troubleshooting tip if not authenticated
+        ...((!authenticated) && {
+          troubleshooting_tip:
+            "For fresh start with clean browser session: Close all Chrome instances → " +
+            "cleanup_data(confirm=true, preserve_library=true) → setup_auth"
+        }),
       };
 
       log.success(`✅ [TOOL] get_health completed`);
@@ -871,6 +1069,7 @@ export class ToolHandlers {
   async handleSetupAuth(
     args: {
       show_browser?: boolean;
+      browser_options?: BrowserOptions;
     },
     sendProgress?: ProgressCallback
   ): Promise<
@@ -881,7 +1080,7 @@ export class ToolHandlers {
       duration_seconds?: number;
     }>
   > {
-    const { show_browser } = args;
+    const { show_browser, browser_options } = args;
 
     // CRITICAL: Send immediate progress to reset timeout from the very start
     await sendProgress?.("Initializing authentication setup...", 0, 10);
@@ -893,6 +1092,11 @@ export class ToolHandlers {
 
     const startTime = Date.now();
 
+    // Apply browser options temporarily
+    const originalConfig = { ...CONFIG };
+    const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
+    Object.assign(CONFIG, effectiveConfig);
+
     try {
       // Progress: Starting
       await sendProgress?.("Preparing authentication browser...", 1, 10);
@@ -902,8 +1106,8 @@ export class ToolHandlers {
       // Progress: Opening browser
       await sendProgress?.("Opening browser window...", 2, 10);
 
-      // Perform setup with progress updates (with optional browser visibility override)
-      const success = await this.authManager.performSetup(sendProgress, show_browser);
+      // Perform setup with progress updates (uses CONFIG internally)
+      const success = await this.authManager.performSetup(sendProgress);
 
       const durationSeconds = (Date.now() - startTime) / 1000;
 
@@ -937,6 +1141,9 @@ export class ToolHandlers {
         success: false,
         error: errorMessage,
       };
+    } finally {
+      // Restore original CONFIG
+      Object.assign(CONFIG, originalConfig);
     }
   }
 
@@ -953,6 +1160,7 @@ export class ToolHandlers {
   async handleReAuth(
     args: {
       show_browser?: boolean;
+      browser_options?: BrowserOptions;
     },
     sendProgress?: ProgressCallback
   ): Promise<
@@ -963,7 +1171,7 @@ export class ToolHandlers {
       duration_seconds?: number;
     }>
   > {
-    const { show_browser } = args;
+    const { show_browser, browser_options } = args;
 
     await sendProgress?.("Preparing re-authentication...", 0, 12);
     log.info(`🔧 [TOOL] re_auth called`);
@@ -972,6 +1180,11 @@ export class ToolHandlers {
     }
 
     const startTime = Date.now();
+
+    // Apply browser options temporarily
+    const originalConfig = { ...CONFIG };
+    const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
+    Object.assign(CONFIG, effectiveConfig);
 
     try {
       // 1. Close all active sessions
@@ -989,7 +1202,7 @@ export class ToolHandlers {
       // 3. Perform fresh setup
       await sendProgress?.("Starting fresh authentication...", 3, 12);
       log.info("  🌐 Starting fresh authentication setup...");
-      const success = await this.authManager.performSetup(sendProgress, show_browser);
+      const success = await this.authManager.performSetup(sendProgress);
 
       const durationSeconds = (Date.now() - startTime) / 1000;
 
@@ -1023,6 +1236,9 @@ export class ToolHandlers {
         success: false,
         error: errorMessage,
       };
+    } finally {
+      // Restore original CONFIG
+      Object.assign(CONFIG, originalConfig);
     }
   }
 
@@ -1237,6 +1453,106 @@ export class ToolHandlers {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log.error(`❌ [TOOL] get_library_stats failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Handle cleanup_data tool
+   *
+   * ULTRATHINK Deep Cleanup - scans entire system for ALL NotebookLM MCP files
+   */
+  async handleCleanupData(
+    args: { confirm: boolean; preserve_library?: boolean }
+  ): Promise<
+    ToolResult<{
+      status: string;
+      mode: string;
+      preview?: {
+        categories: Array<{
+          name: string;
+          description: string;
+          paths: string[];
+          totalBytes: number;
+          optional: boolean;
+        }>;
+        totalPaths: number;
+        totalSizeBytes: number;
+      };
+      result?: {
+        deletedPaths: string[];
+        failedPaths: string[];
+        totalSizeBytes: number;
+        categorySummary: Record<string, { count: number; bytes: number }>;
+      };
+    }>
+  > {
+    const { confirm, preserve_library = false } = args;
+
+    log.info(`🔧 [TOOL] cleanup_data called`);
+    log.info(`  Confirm: ${confirm}`);
+    log.info(`  Preserve Library: ${preserve_library}`);
+
+    const cleanupManager = new CleanupManager();
+
+    try {
+      // Always run in deep mode
+      const mode = "deep";
+
+      if (!confirm) {
+        // Preview mode - show what would be deleted
+        log.info(`  📋 Generating cleanup preview (mode: ${mode})...`);
+
+        const preview = await cleanupManager.getCleanupPaths(mode, preserve_library);
+        const platformInfo = cleanupManager.getPlatformInfo();
+
+        log.info(`  Found ${preview.totalPaths.length} items (${cleanupManager.formatBytes(preview.totalSizeBytes)})`);
+        log.info(`  Platform: ${platformInfo.platform}`);
+
+        return {
+          success: true,
+          data: {
+            status: "preview",
+            mode,
+            preview: {
+              categories: preview.categories,
+              totalPaths: preview.totalPaths.length,
+              totalSizeBytes: preview.totalSizeBytes,
+            },
+          },
+        };
+      } else {
+        // Cleanup mode - actually delete files
+        log.info(`  🗑️  Performing cleanup (mode: ${mode})...`);
+
+        const result = await cleanupManager.performCleanup(mode, preserve_library);
+
+        if (result.success) {
+          log.success(`✅ [TOOL] cleanup_data completed - deleted ${result.deletedPaths.length} items`);
+        } else {
+          log.warning(`⚠️  [TOOL] cleanup_data completed with ${result.failedPaths.length} errors`);
+        }
+
+        return {
+          success: result.success,
+          data: {
+            status: result.success ? "completed" : "partial",
+            mode,
+            result: {
+              deletedPaths: result.deletedPaths,
+              failedPaths: result.failedPaths,
+              totalSizeBytes: result.totalSizeBytes,
+              categorySummary: result.categorySummary,
+            },
+          },
+        };
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] cleanup_data failed: ${errorMessage}`);
       return {
         success: false,
         error: errorMessage,

@@ -65,7 +65,7 @@ class NotebookLMMCPServer {
     this.server = new Server(
       {
         name: "notebooklm-mcp",
-        version: "1.0.0",
+        version: "1.1.0",
       },
       {
         capabilities: {
@@ -94,7 +94,7 @@ class NotebookLMMCPServer {
     this.setupShutdownHandlers();
 
     log.info("🚀 NotebookLM MCP Server initialized");
-    log.info(`  Version: 1.0.0`);
+    log.info(`  Version: 1.1.0`);
     log.info(`  Node: ${process.version}`);
     log.info(`  Platform: ${process.platform}`);
   }
@@ -472,6 +472,12 @@ class NotebookLMMCPServer {
             result = await this.toolHandlers.handleReAuth(
               args as { show_browser?: boolean },
               sendProgress
+            );
+            break;
+
+          case "cleanup_data":
+            result = await this.toolHandlers.handleCleanupData(
+              args as { confirm: boolean }
             );
             break;
 

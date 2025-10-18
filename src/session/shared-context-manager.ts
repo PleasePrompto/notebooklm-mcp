@@ -63,6 +63,13 @@ export class SharedContextManager {
    * @param overrideHeadless Optional override for headless mode (true = show browser)
    */
   async getOrCreateContext(overrideHeadless?: boolean): Promise<BrowserContext> {
+    // Check if headless mode needs to be changed (e.g., show_browser=true)
+    // If yes, close the browser so it gets recreated with the new mode
+    if (this.needsHeadlessModeChange(overrideHeadless)) {
+      log.warning("🔄 Headless mode change detected - recreating browser context...");
+      await this.closeContext();
+    }
+
     if (await this.needsRecreation()) {
       log.warning("🔄 Creating/Loading persistent context...");
       await this.recreateContext(overrideHeadless);
@@ -430,18 +437,17 @@ export class SharedContextManager {
    * @returns boolean - true if context needs to be recreated with new mode
    */
   needsHeadlessModeChange(overrideHeadless?: boolean): boolean {
-    // No override specified = no change needed
-    if (overrideHeadless === undefined) {
-      return false;
-    }
-
     // No context exists yet = will be created with correct mode anyway
     if (this.currentHeadlessMode === null) {
       return false;
     }
 
     // Calculate target headless mode
-    const targetHeadless = !overrideHeadless;
+    // If override is specified, use it (!overrideHeadless because true = show browser = headless false)
+    // Otherwise, use CONFIG.headless (which may have been temporarily modified by browser_options)
+    const targetHeadless = overrideHeadless !== undefined
+      ? !overrideHeadless
+      : CONFIG.headless;
 
     // Compare with current mode
     const needsChange = this.currentHeadlessMode !== targetHeadless;

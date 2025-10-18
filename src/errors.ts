@@ -22,3 +22,24 @@ export class RateLimitError extends Error {
     }
   }
 }
+
+/**
+ * Error thrown when authentication fails
+ *
+ * This error can suggest cleanup workflow for persistent issues.
+ * Especially useful when upgrading from old installation (notebooklm-mcp-nodejs).
+ */
+export class AuthenticationError extends Error {
+  suggestCleanup: boolean;
+
+  constructor(message: string, suggestCleanup: boolean = false) {
+    super(message);
+    this.name = "AuthenticationError";
+    this.suggestCleanup = suggestCleanup;
+
+    // Maintain proper stack trace for where error was thrown (V8 only)
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, AuthenticationError);
+    }
+  }
+}
