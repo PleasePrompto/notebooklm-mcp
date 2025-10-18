@@ -4,7 +4,7 @@
   "description": "MCP server for NotebookLM API with session support and human-like behavior",
   "type": "module",
   "bin": {
-    "notebooklm-mcp": "./dist/index.js"
+    "notebooklm-mcp": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
