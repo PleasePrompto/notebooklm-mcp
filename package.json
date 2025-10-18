@@ -1,6 +1,6 @@
 {
   "name": "notebooklm-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "MCP server for NotebookLM API with session support and human-like behavior",
   "type": "module",
   "bin": {
@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "postbuild": "chmod +x dist/index.js",
     "watch": "tsc --watch",
     "dev": "tsx watch src/index.ts",
     "prepare": "npm run build",
