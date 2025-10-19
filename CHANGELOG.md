@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2025-10-19
+
+### Changed
+- **README Documentation** - Added Claude Code Skill reference
+  - New badge linking to [notebooklm-skill](https://github.com/PleasePrompto/notebooklm-skill) repository
+  - Added prominent callout section explaining Claude Code Skill availability
+  - Clarified differences between MCP server and Skill implementations
+  - Added navigation link to Skill repository in top menu
+  - Both implementations use the same browser automation technology
+
 ## [1.1.1] - 2025-10-18
 
 ### Fixed
