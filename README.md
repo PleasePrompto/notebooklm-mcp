@@ -108,6 +108,23 @@ code --add-mcp '{"name":"notebooklm","command":"npx","args":["notebooklm-mcp@lat
 </details>
 
 <details>
+<summary>OpenCode</summary>
+
+Add to `~/.config/opencode/opencode.json`:
+```json
+{
+  "mcp": {
+    "notebooklm": {
+      "type": "local",
+      "command": ["npx", "-y", "notebooklm-mcp@latest"],
+      "enabled": true
+    }
+  }
+}
+```
+</details>
+
+<details>
 <summary>Other MCP clients</summary>
 
 **Generic MCP config:**
