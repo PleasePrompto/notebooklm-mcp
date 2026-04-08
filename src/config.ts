@@ -76,6 +76,12 @@ export interface Config {
   cleanupInstancesOnShutdown: boolean;
   instanceProfileTtlHours: number;
   instanceProfileMaxCount: number;
+
+  // Response formatting
+  // When true, appends a follow-up reminder to every ask_question answer.
+  // Disabled by default because the reminder uses imperative language that
+  // well-aligned assistants may flag as prompt injection. See issue #28.
+  followUpReminderEnabled: boolean;
 }
 
 /**
@@ -130,6 +136,9 @@ const DEFAULTS: Config = {
   cleanupInstancesOnShutdown: true,
   instanceProfileTtlHours: 72,
   instanceProfileMaxCount: 20,
+
+  // Response formatting (opt-in to avoid prompt-injection-like output)
+  followUpReminderEnabled: false,
 };
 
 
@@ -195,6 +204,7 @@ function applyEnvOverrides(config: Config): Config {
     cleanupInstancesOnShutdown: parseBoolean(process.env.NOTEBOOK_CLEANUP_ON_SHUTDOWN, config.cleanupInstancesOnShutdown),
     instanceProfileTtlHours: parseInteger(process.env.NOTEBOOK_INSTANCE_TTL_HOURS, config.instanceProfileTtlHours),
     instanceProfileMaxCount: parseInteger(process.env.NOTEBOOK_INSTANCE_MAX_COUNT, config.instanceProfileMaxCount),
+    followUpReminderEnabled: parseBoolean(process.env.NOTEBOOKLM_FOLLOW_UP_REMINDER, config.followUpReminderEnabled),
   };
 }
 

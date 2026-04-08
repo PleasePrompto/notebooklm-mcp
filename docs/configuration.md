@@ -74,6 +74,8 @@ For advanced users who want to set global defaults:
 - Library metadata (optional hints)
   - `NOTEBOOK_DESCRIPTION`, `NOTEBOOK_TOPICS`, `NOTEBOOK_CONTENT_TYPES`, `NOTEBOOK_USE_CASES`
   - `NOTEBOOK_URL` — optional; leave empty and manage notebooks via the library
+- Response formatting
+  - `NOTEBOOKLM_FOLLOW_UP_REMINDER` — `true|false` (default `false`) — When `true`, appends a follow-up reminder to every `ask_question` answer encouraging the assistant to continue the session. Disabled by default because the reminder uses imperative language that well-aligned assistants may flag as prompt injection (see issue #28).
 
 ---
 

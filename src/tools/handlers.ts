@@ -119,7 +119,9 @@ export class ToolHandlers {
 
       // Ask the question (pass progress callback)
       const rawAnswer = await session.ask(question, sendProgress);
-      const answer = `${rawAnswer.trimEnd()}${FOLLOW_UP_REMINDER}`;
+      const answer = CONFIG.followUpReminderEnabled
+        ? `${rawAnswer.trimEnd()}${FOLLOW_UP_REMINDER}`
+        : rawAnswer.trimEnd();
 
       // Get session info
       const sessionInfo = session.getInfo();
