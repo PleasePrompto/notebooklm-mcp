@@ -6,3 +6,4 @@
 
 export { buildToolDefinitions } from "./definitions.js";
 export { ToolHandlers } from "./handlers.js";
+export { StudioHandlers } from "./studio-handlers.js";

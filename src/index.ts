@@ -41,7 +41,7 @@ import {
 import { AuthManager } from "./auth/auth-manager.js";
 import { SessionManager } from "./session/session-manager.js";
 import { NotebookLibrary } from "./library/notebook-library.js";
-import { ToolHandlers, buildToolDefinitions } from "./tools/index.js";
+import { ToolHandlers, buildToolDefinitions, StudioHandlers } from "./tools/index.js";
 import { ResourceHandlers } from "./resources/resource-handlers.js";
 import { SettingsManager } from "./utils/settings-manager.js";
 import { CliHandler } from "./utils/cli-handler.js";
@@ -57,6 +57,7 @@ class NotebookLMMCPServer {
   private sessionManager: SessionManager;
   private library: NotebookLibrary;
   private toolHandlers: ToolHandlers;
+  private studioHandlers: StudioHandlers;
   private resourceHandlers: ResourceHandlers;
   private settingsManager: SettingsManager;
   private toolDefinitions: Tool[];
@@ -92,6 +93,7 @@ class NotebookLMMCPServer {
       this.authManager,
       this.library
     );
+    this.studioHandlers = new StudioHandlers(this.sessionManager);
     this.resourceHandlers = new ResourceHandlers(this.library);
 
     // Build and Filter tool definitions
@@ -266,6 +268,26 @@ class NotebookLMMCPServer {
           case "cleanup_data":
             result = await this.toolHandlers.handleCleanupData(
               args as { confirm: boolean }
+            );
+            break;
+
+          // Studio artifact tools
+          case "studio_create":
+            result = await this.studioHandlers.handleStudioCreate(
+              args as Record<string, unknown>,
+              sendProgress
+            );
+            break;
+
+          case "studio_status":
+            result = await this.studioHandlers.handleStudioStatus(
+              args as Record<string, unknown>
+            );
+            break;
+
+          case "studio_delete":
+            result = await this.studioHandlers.handleStudioDelete(
+              args as Record<string, unknown>
             );
             break;
 

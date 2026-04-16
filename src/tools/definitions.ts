@@ -13,6 +13,7 @@ import {
 import { notebookManagementTools } from "./definitions/notebook-management.js";
 import { sessionManagementTools } from "./definitions/session-management.js";
 import { systemTools } from "./definitions/system.js";
+import { studioTools } from "./definitions/studio.js";
 
 /**
  * Build Tool Definitions with NotebookLibrary context
@@ -29,5 +30,6 @@ export function buildToolDefinitions(library: NotebookLibrary): Tool[] {
     ...notebookManagementTools,
     ...sessionManagementTools,
     ...systemTools,
+    ...studioTools,
   ];
 }
