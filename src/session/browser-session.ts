@@ -409,7 +409,7 @@ export class BrowserSession {
       await sendProgress?.("Waiting for NotebookLM response (streaming detection active)...", 3, 5);
       const answer = await waitForLatestAnswer(page, {
         question,
-        timeoutMs: 120000, // 2 minutes
+        timeoutMs: CONFIG.answerTimeoutMs,
         pollIntervalMs: 1000,
         ignoreTexts: existingResponses,
         debug: false,

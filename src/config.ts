@@ -34,6 +34,7 @@ export interface Config {
   // Browser Settings
   headless: boolean;
   browserTimeout: number;
+  answerTimeoutMs: number;
   viewport: { width: number; height: number };
 
   // Session Management
@@ -88,6 +89,7 @@ const DEFAULTS: Config = {
   // Browser Settings
   headless: true,
   browserTimeout: 30000,
+  answerTimeoutMs: 120000, // 2 minutes — wait for NotebookLM's streamed answer
   viewport: { width: 1024, height: 768 },
 
   // Session Management
@@ -171,6 +173,7 @@ function applyEnvOverrides(config: Config): Config {
     notebookUrl: process.env.NOTEBOOK_URL || config.notebookUrl,
     headless: parseBoolean(process.env.HEADLESS, config.headless),
     browserTimeout: parseInteger(process.env.BROWSER_TIMEOUT, config.browserTimeout),
+    answerTimeoutMs: parseInteger(process.env.ANSWER_TIMEOUT_MS, config.answerTimeoutMs),
     maxSessions: parseInteger(process.env.MAX_SESSIONS, config.maxSessions),
     sessionTimeout: parseInteger(process.env.SESSION_TIMEOUT, config.sessionTimeout),
     autoLoginEnabled: parseBoolean(process.env.AUTO_LOGIN_ENABLED, config.autoLoginEnabled),
