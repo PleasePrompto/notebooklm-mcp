@@ -487,6 +487,19 @@ class NotebookLMMCPServer {
     process.on("SIGINT", () => requestShutdown("SIGINT"));
     process.on("SIGTERM", () => requestShutdown("SIGTERM"));
 
+    // MCP clients (Claude Desktop, Claude Code, Codex, Cursor, …) signal
+    // disconnect by closing the stdio pipe, not by sending a signal. Without
+    // these handlers the process stays alive because Patchright/Chromium keeps
+    // the event loop running — which is the orphan-process pattern reported
+    // in #29. Detect the EOF and route into the existing shutdown path so the
+    // 5-second hard-exit watchdog above still applies. We listen on both
+    // events because `'end'` is the graceful EOF (normal client exit) and
+    // `'close'` is the fallback for an abrupt fd close (client SIGKILL,
+    // crashed parent, broken pipe); the `shuttingDown` guard makes the
+    // second emission a no-op.
+    process.stdin.on("end", () => requestShutdown("stdin-end"));
+    process.stdin.on("close", () => requestShutdown("stdin-close"));
+
     process.on("uncaughtException", (error) => {
       log.error(`💥 Uncaught exception: ${error}`);
       log.error(error.stack || "");
