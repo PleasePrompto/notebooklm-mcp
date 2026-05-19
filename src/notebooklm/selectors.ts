@@ -46,6 +46,8 @@ export const Selectors = {
       'textarea[aria-label*="domanda" i]',
       'textarea[aria-label*="vraag" i]',
       'textarea[aria-label*="質問" i]',
+      'textarea[placeholder*="質問" i]',
+      'textarea[placeholder*="何かを作成" i]',
       'textarea[aria-label*="pergunta" i]',
     ],
     /**

@@ -183,14 +183,30 @@ export class BrowserSession {
       });
       log.success("  ✅ Chat input ready!");
     } catch {
-      // FALLBACK: Python alternative selector
+      // FALLBACK: locale-specific selectors observed in current NotebookLM.
       try {
-        log.info("  ⏳ Trying fallback selector (aria-label)...");
-        await this.page.waitForSelector('textarea[aria-label="Feld für Anfragen"]', {
-          timeout: 5000, // Python uses 5s for fallback
-          state: "visible",
-        });
-        log.success("  ✅ Chat input ready (fallback)!");
+        log.info("  ⏳ Trying fallback selectors (aria-label / placeholder)...");
+        const fallbackSelectors = [
+          'textarea[aria-label="Feld für Anfragen"]',
+          'textarea[aria-label*="質問" i]',
+          'textarea[placeholder*="質問" i]',
+          'textarea[placeholder*="何かを作成" i]',
+        ];
+
+        for (const selector of fallbackSelectors) {
+          try {
+            await this.page.waitForSelector(selector, {
+              timeout: 5000, // Python uses 5s for fallback
+              state: "visible",
+            });
+            log.success(`  ✅ Chat input ready (fallback: ${selector})!`);
+            return;
+          } catch {
+            continue;
+          }
+        }
+
+        throw new Error("No fallback selector matched the NotebookLM chat input.");
       } catch (error) {
         log.error(`  ❌ NotebookLM interface not ready: ${error}`);
         throw new Error(
@@ -565,6 +581,9 @@ export class BrowserSession {
       'textarea[aria-label*="requete" i]',
       'textarea[aria-label*="consulta" i]',
       'textarea[aria-label*="domanda" i]',
+      'textarea[aria-label*="質問" i]',
+      'textarea[placeholder*="質問" i]',
+      'textarea[placeholder*="何かを作成" i]',
     ];
 
     const tryFind = async (): Promise<string | null> => {
