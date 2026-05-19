@@ -191,20 +191,30 @@ async function openAddSourceOverlay(page: Page): Promise<void> {
     return;
   }
 
-  // Try the sidebar button first — fastest path on a populated notebook.
-  try {
-    await page
-      .locator(joinAlt(Selectors.sources.addButton))
-      .first()
-      .click({ timeout: 5_000 });
-    await page
-      .locator(Selectors.sources.overlayPane)
-      .first()
-      .waitFor({ state: "visible", timeout: 8_000 });
-    return;
-  } catch (err) {
-    log.warning(`  ⚠️  Add-source button click failed (${err}), trying ?addSource=true URL fallback`);
+  // Try the sidebar button first — fastest path on a populated notebook. Iterate
+  // visible candidates because NotebookLM can keep hidden duplicate buttons in
+  // the DOM during responsive/sidebar transitions.
+  for (const selector of Selectors.sources.addButton) {
+    const matches = page.locator(selector);
+    const count = await matches.count().catch(() => 0);
+
+    for (let i = 0; i < Math.min(count, 5); i++) {
+      const candidate = matches.nth(i);
+      if (!(await candidate.isVisible({ timeout: 500 }).catch(() => false))) {
+        continue;
+      }
+
+      try {
+        await candidate.click({ timeout: 5_000 });
+        await waitForAddSourceOverlay(page, 8_000);
+        return;
+      } catch (err) {
+        log.warning(`  ⚠️  Add-source button candidate failed (${selector} #${i}: ${err})`);
+      }
+    }
   }
+
+  log.warning("  ⚠️  Add-source button click failed, trying ?addSource=true URL fallback");
 
   // URL fallback — useful when the sidebar button is hidden or covered.
   const url = page.url();
@@ -212,10 +222,7 @@ async function openAddSourceOverlay(page: Page): Promise<void> {
     const u = new URL(url);
     u.searchParams.set("addSource", "true");
     await page.goto(u.toString(), { waitUntil: "domcontentloaded", timeout: 15_000 });
-    await page
-      .locator(Selectors.sources.overlayPane)
-      .first()
-      .waitFor({ state: "visible", timeout: 10_000 });
+    await waitForAddSourceOverlay(page, 10_000);
     return;
   }
 
@@ -223,19 +230,30 @@ async function openAddSourceOverlay(page: Page): Promise<void> {
 }
 
 async function isOverlayVisible(page: Page): Promise<boolean> {
-  return page
-    .locator(Selectors.sources.overlayPane)
-    .first()
-    .isVisible({ timeout: 500 })
+  return waitForAddSourceOverlay(page, 500)
+    .then(() => true)
     .catch(() => false);
+}
+
+async function waitForAddSourceOverlay(page: Page, timeoutMs: number): Promise<void> {
+  const readySelectors = [
+    ...Selectors.sources.sourceTypeUrl,
+    ...Selectors.sources.sourceTypeText,
+    Selectors.sources.overlayInput,
+    Selectors.sources.overlayTextarea,
+  ];
+
+  await page
+    .locator(joinAlt(readySelectors))
+    .first()
+    .waitFor({ state: "visible", timeout: timeoutMs });
 }
 
 async function pickSourceType(page: Page, type: SourceType): Promise<void> {
   const candidates =
     type === "url" ? Selectors.sources.sourceTypeUrl : Selectors.sources.sourceTypeText;
-  const overlay = page.locator(Selectors.sources.overlayPane).first();
   for (const sel of candidates) {
-    const target = overlay.locator(sel).first();
+    const target = page.locator(sel).first();
     if (await target.isVisible({ timeout: 1_000 }).catch(() => false)) {
       await target.click();
       // Sub-dialog needs a moment to hydrate before we type.
