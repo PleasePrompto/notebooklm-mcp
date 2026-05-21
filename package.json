@@ -13,6 +13,7 @@
     "dev": "tsx watch src/index.ts",
     "prepare": "npm run build",
     "test": "tsx src/index.ts",
+    "test:unit": "tsx --test test/*.test.ts",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write src",

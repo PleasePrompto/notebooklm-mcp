@@ -200,21 +200,49 @@ export interface AskOptions {
   pollIntervalMs?: number;
   /** Texts known *before* the question was submitted. Used to skip prior answers. */
   ignoreTexts?: string[];
+  /** Number of visible answer elements before the question was submitted. */
+  priorAnswerCount?: number;
   /** How many consecutive identical polls count as "answer settled". Default 3. */
   stablePolls?: number;
 }
 
+export interface PriorAnswerSnapshot {
+  /** Number of visible answer elements before the question was submitted. */
+  count: number;
+  /** Sanitized answer texts known before the question was submitted. */
+  texts: string[];
+}
+
+interface LatestAnswer {
+  text: string;
+  isNewAnswerElement: boolean;
+}
+
 /**
  * Snapshot every visible assistant answer text *before* a new question is
- * submitted. Pass the result into `waitForStableAnswer({ ignoreTexts })` so
- * the new turn isn't confused with prior turns in the same session.
+ * submitted. Kept for callers that only need prior text filtering; new callers
+ * should prefer `snapshotPriorAnswerState` so repeated answer text is safe.
  */
 export async function snapshotPriorAnswers(page: Page): Promise<string[]> {
-  return page
-    .locator(Selectors.chat.answerText)
-    .allInnerTexts()
-    .then((texts) => texts.map((t) => t.trim()).filter(Boolean))
-    .catch(() => []);
+  return snapshotPriorAnswerState(page).then((snapshot) => snapshot.texts);
+}
+
+/**
+ * Snapshot visible assistant answers and their DOM count before submitting.
+ * Text alone is not a safe identity because two legitimate turns may produce
+ * the same answer; the count lets the wait logic distinguish old and new turns.
+ */
+export async function snapshotPriorAnswerState(page: Page): Promise<PriorAnswerSnapshot> {
+  try {
+    const answers = page.locator(Selectors.chat.answerText);
+    const rawTexts = await answers.allInnerTexts();
+    return {
+      count: await answers.count(),
+      texts: rawTexts.map((text) => sanitizeAnswer(text)).filter(Boolean),
+    };
+  } catch {
+    return { count: 0, texts: [] };
+  }
 }
 
 /**
@@ -233,6 +261,7 @@ export async function waitForStableAnswer(
     timeoutMs = 600_000,
     pollIntervalMs = 750,
     ignoreTexts = [],
+    priorAnswerCount = ignoreTexts.length,
     stablePolls = 3,
   } = options;
 
@@ -256,17 +285,18 @@ export async function waitForStableAnswer(
       throw new Error("Browser page unresponsive: health check timed out");
     }
 
-    let candidate: string | null = null;
+    let latest: LatestAnswer | null = null;
     try {
-      candidate = await readLatestAnswer(page);
+      latest = await readLatestAnswer(page, priorAnswerCount);
     } catch (err) {
       if (isRecoverable(err)) throw err;
       // Non-fatal extraction blip — try again next tick.
     }
 
+    const candidate = latest?.text ?? null;
     if (candidate) {
       const isEcho = candidate.toLowerCase() === echoLower;
-      const isPrior = ignoreSet.has(candidate);
+      const isPrior = !latest?.isNewAnswerElement && ignoreSet.has(candidate);
 
       if (!isEcho && !isPrior) {
         // Loading placeholders ("Parsing the data…", "Thinking…", …) are
@@ -307,14 +337,16 @@ export async function waitForStableAnswer(
  * Read the latest answer container's text and strip UI-control leakage.
  * Uses `:last-child` so we always target the most recent turn.
  */
-async function readLatestAnswer(page: Page): Promise<string | null> {
+async function readLatestAnswer(page: Page, priorAnswerCount = 0): Promise<LatestAnswer | null> {
   try {
-    const raw = await page
-      .locator(Selectors.chat.latestAnswerText)
-      .last()
-      .innerText({ timeout: 2_000 });
+    const answers = page.locator(Selectors.chat.answerText);
+    const count = await answers.count();
+    const isNewAnswerElement = count > priorAnswerCount;
+    const raw = isNewAnswerElement
+      ? await answers.nth(count - 1).innerText({ timeout: 2_000 })
+      : await page.locator(Selectors.chat.latestAnswerText).last().innerText({ timeout: 2_000 });
     const cleaned = sanitizeAnswer(raw);
-    return cleaned.length > 0 ? cleaned : null;
+    return cleaned.length > 0 ? { text: cleaned, isNewAnswerElement } : null;
   } catch {
     return null;
   }

@@ -18,7 +18,7 @@ import type { SharedContextManager } from "./shared-context-manager.js";
 import type { AuthManager } from "../auth/auth-manager.js";
 import { humanType, randomDelay } from "../utils/stealth-utils.js";
 import { snapshotAllResponses } from "../utils/page-utils.js";
-import { waitForStableAnswer, snapshotPriorAnswers } from "../notebooklm/chat.js";
+import { waitForStableAnswer, snapshotPriorAnswerState } from "../notebooklm/chat.js";
 import {
   extractCitations as extractCitationsFromPage,
   type SourceFormat,
@@ -385,11 +385,14 @@ export class BrowserSession {
       // (issue #43). Falls back to the legacy snapshot only if the v2 helper
       // produced nothing, so we don't regress when the new selectors miss.
       log.info(`  📸 Snapshotting existing responses...`);
-      let existingResponses = await snapshotPriorAnswers(page);
-      if (existingResponses.length === 0) {
-        existingResponses = await snapshotAllResponses(page);
+      let existingResponseSnapshot = await snapshotPriorAnswerState(page);
+      if (existingResponseSnapshot.texts.length === 0) {
+        existingResponseSnapshot = {
+          count: existingResponseSnapshot.count,
+          texts: await snapshotAllResponses(page),
+        };
       }
-      log.success(`  ✅ Captured ${existingResponses.length} existing responses`);
+      log.success(`  ✅ Captured ${existingResponseSnapshot.texts.length} existing responses`);
 
       // Find the chat input
       const inputSelector = await this.findChatInput();
@@ -427,7 +430,8 @@ export class BrowserSession {
         question,
         timeoutMs: CONFIG.answerTimeoutMs,
         pollIntervalMs: 750,
-        ignoreTexts: existingResponses,
+        ignoreTexts: existingResponseSnapshot.texts,
+        priorAnswerCount: existingResponseSnapshot.count,
       });
 
       if (!answer) {
