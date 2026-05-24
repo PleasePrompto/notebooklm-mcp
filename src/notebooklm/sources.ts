@@ -86,9 +86,7 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
       const currentUrl = page.url();
       const currentUuid = currentUrl.match(/notebook\/([a-f0-9-]+)/)?.[1];
       if (currentUuid && currentUuid !== expectedUuid) {
-        log.error(
-          `  ❌ Notebook redirect: expected ${expectedUuid}, got ${currentUuid}`
-        );
+        log.error(`  ❌ Notebook redirect: expected ${expectedUuid}, got ${currentUuid}`);
         return {
           success: false,
           type: input.type,
@@ -193,24 +191,37 @@ async function openAddSourceOverlay(page: Page): Promise<void> {
 
   // Try the sidebar button first — fastest path on a populated notebook.
   try {
-    await page
-      .locator(joinAlt(Selectors.sources.addButton))
-      .first()
-      .click({ timeout: 5_000 });
+    await page.locator(joinAlt(Selectors.sources.addButton)).first().click({ timeout: 5_000 });
     await page
       .locator(Selectors.sources.overlayPane)
       .first()
       .waitFor({ state: "visible", timeout: 8_000 });
     return;
   } catch (err) {
-    log.warning(`  ⚠️  Add-source button click failed (${err}), trying ?addSource=true URL fallback`);
+    log.warning(
+      `  ⚠️  Add-source button click failed (${err}), trying ?addSource=true URL fallback`
+    );
   }
 
   // URL fallback — useful when the sidebar button is hidden or covered.
+  //
+  // PATCH 2026-05: drop the `!url.includes("addSource=true")` short-circuit.
+  // Once a previous attempt navigates to `?addSource=true` and the modal
+  // never opens (e.g. selector miss), the URL stays sticky on every
+  // subsequent BrowserSession reuse. The next add_source call then fails
+  // the if-check and falls straight through to the `throw` below — a
+  // permanent dead state cleared only by killing the session.
+  // Fix: strip any existing `addSource`/`_t` params first, then re-add
+  // `addSource=true` plus a `_t` cache-buster so the navigation is
+  // guaranteed to be a fresh hit even when the URL was already sticky.
+  // See issue #46 ("post-bootstrap add_source silent-drop").
   const url = page.url();
-  if (url && /\/notebook\//.test(url) && !url.includes("addSource=true")) {
+  if (url && /\/notebook\//.test(url)) {
     const u = new URL(url);
+    u.searchParams.delete("addSource");
+    u.searchParams.delete("_t");
     u.searchParams.set("addSource", "true");
+    u.searchParams.set("_t", String(Date.now()));
     await page.goto(u.toString(), { waitUntil: "domcontentloaded", timeout: 15_000 });
     await page
       .locator(Selectors.sources.overlayPane)

@@ -135,14 +135,32 @@ export const Selectors = {
       'button[aria-label*="ソースを追加" i]',
     ],
     /**
-     * Real Material modal. `[role="dialog"]` is set by Angular synchronously
-     * the moment the modal mounts — race-free against the `.mdc-dialog--open`
-     * animation class and resistant to Material-UI version bumps. Avoid
-     * `.cdk-overlay-pane` (matches every dropdown / emoji picker / menu).
+     * Real Material modal. `[role="dialog"]` alone is too narrow and too
+     * broad at the same time:
+     *  • Too narrow — NotebookLM 2026 sometimes renders the modal as
+     *    `mat-dialog-container` or a `[aria-modal="true"]` element with no
+     *    explicit role.
+     *  • Too broad — the page always carries a hidden Emoji-palette dialog
+     *    (`[role="dialog" aria-label="Emoji characters palette"]`); a bare
+     *    selector matches it first, and `.first().waitFor({state:visible})`
+     *    then blocks forever waiting on a hidden element. Locally observed
+     *    with `24 × locator resolved to hidden <div role="dialog"
+     *    aria-label="Emoji characters palette">` before a 10 s timeout.
+     * Fix: union of three modal-flavored anchors, scoped to :visible and
+     * excluding the Emoji palette by aria-label. Resistant to Material-UI
+     * version bumps without re-introducing the dropdown/menu false
+     * positives that `.cdk-overlay-pane` would cause. See issue #46.
      */
-    overlayPane: '[role="dialog"]',
-    overlayInput: '[role="dialog"] input[type="text"]:not([readonly])',
-    overlayTextarea: '[role="dialog"] textarea',
+    overlayPane:
+      '[role="dialog"]:not([aria-label*="Emoji" i]):visible, mat-dialog-container:visible, [aria-modal="true"]:visible',
+    overlayInput:
+      '[role="dialog"]:not([aria-label*="Emoji" i]):visible input[type="text"]:not([readonly]), ' +
+      'mat-dialog-container:visible input[type="text"]:not([readonly]), ' +
+      '[aria-modal="true"]:visible input[type="text"]:not([readonly])',
+    overlayTextarea:
+      '[role="dialog"]:not([aria-label*="Emoji" i]):visible textarea, ' +
+      "mat-dialog-container:visible textarea, " +
+      '[aria-modal="true"]:visible textarea',
     /**
      * Source-type buttons in the Add-source overlay. Google ships them
      * *without* aria-labels — the only stable, language-agnostic anchor is
@@ -313,7 +331,7 @@ export const Selectors = {
      * contains the Download item.
      */
     audioMoreMenuButton: [
-      "artifact-library-item button:has(mat-icon:text-is(\"more_vert\"))",
+      'artifact-library-item button:has(mat-icon:text-is("more_vert"))',
       'artifact-library-item button[aria-label*="mehr" i]',
       'artifact-library-item button[aria-label*="more" i]',
       'artifact-library-item button[aria-label*="plus" i]',
