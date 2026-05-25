@@ -48,3 +48,4 @@ venv/
 .playwright-mcp/
 tmp/
 studio-*.png
+.worktrees/
