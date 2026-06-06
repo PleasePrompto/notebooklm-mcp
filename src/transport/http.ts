@@ -13,12 +13,8 @@
  * other. Session lifecycle is fully owned by the SDK; we just route.
  */
 
-import {
-  createServer,
-  IncomingMessage,
-  type Server as HttpServer,
-  ServerResponse,
-} from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { createServer, type Server as HttpServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import type { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -28,8 +24,8 @@ import { log } from "../utils/logger.js";
 export interface HttpTransportOptions {
   port: number;
   host?: string;
-  /** Connect callback invoked once per new session — wires the McpServer to the transport. */
-  connect: (transport: StreamableHTTPServerTransport) => Promise<void>;
+  /** Factory invoked once per new session — returns a fresh McpServer instance wired 1:1 to the transport. */
+  createServer: () => McpServer;
 }
 
 export interface HttpTransportHandle {
@@ -40,7 +36,10 @@ export interface HttpTransportHandle {
 const SESSION_HEADER = "mcp-session-id";
 
 export async function startHttpTransport(opts: HttpTransportOptions): Promise<HttpTransportHandle> {
-  const transports = new Map<string, StreamableHTTPServerTransport>();
+  const transports = new Map<
+    string,
+    { transport: StreamableHTTPServerTransport; server: McpServer }
+  >();
 
   const server = createServer((req, res) => {
     void handleRequest(req, res, transports, opts).catch((err) => {
@@ -66,14 +65,20 @@ export async function startHttpTransport(opts: HttpTransportOptions): Promise<Ht
   return {
     server,
     close: async () => {
-      for (const t of transports.values()) {
+      const entries = [...transports.values()];
+      transports.clear();
+      for (const entry of entries) {
         try {
-          await t.close();
+          await entry.transport.close();
         } catch {
-          /* ignore — best-effort shutdown */
+          /* ignore */
+        }
+        try {
+          await entry.server.close();
+        } catch {
+          /* ignore */
         }
       }
-      transports.clear();
       await new Promise<void>((resolve, reject) =>
         server.close((err) => (err ? reject(err) : resolve()))
       );
@@ -95,7 +100,7 @@ export async function bindMcpServer(
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  transports: Map<string, StreamableHTTPServerTransport>,
+  transports: Map<string, { transport: StreamableHTTPServerTransport; server: McpServer }>,
   opts: HttpTransportOptions
 ): Promise<void> {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -116,7 +121,8 @@ async function handleRequest(
 
   if (req.method === "GET" || req.method === "DELETE") {
     // SSE streams + session termination — both routed by session.
-    const transport = sessionId ? transports.get(sessionId) : undefined;
+    const entry = sessionId ? transports.get(sessionId) : undefined;
+    const transport = entry?.transport;
     if (!transport) {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "unknown session" }));
@@ -135,18 +141,22 @@ async function handleRequest(
   const body = await readJsonBody(req);
 
   // Re-use existing session, or initialise a new one when the client says so.
-  let transport = sessionId ? transports.get(sessionId) : undefined;
+  let transport = sessionId ? transports.get(sessionId)?.transport : undefined;
   if (!transport && isInitializeRequest(body)) {
     transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (sid) => {
-        transports.set(sid, transport!);
+        transports.set(sid, { transport: transport!, server });
       },
     });
+    const server = opts.createServer();
     transport.onclose = () => {
-      if (transport!.sessionId) transports.delete(transport!.sessionId);
+      if (transport!.sessionId) {
+        void server.close().catch(() => {});
+        transports.delete(transport!.sessionId);
+      }
     };
-    await opts.connect(transport);
+    await server.connect(transport);
   }
 
   if (!transport) {
