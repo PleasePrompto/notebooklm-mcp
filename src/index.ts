@@ -185,8 +185,8 @@ class NotebookLMMCPServer {
     const allTools = buildToolDefinitions(this.library) as Tool[];
     this.toolDefinitions = this.settingsManager.filterTools(allTools);
 
-    // Setup handlers
-    this.setupHandlers();
+    // Setup handlers (for stdio transport, registerHandlersOn is also called for HTTP per-session servers)
+    this.registerHandlersOn(this.server);
     this.setupShutdownHandlers();
 
     const activeSettings = this.settingsManager.getEffectiveSettings();
@@ -198,14 +198,15 @@ class NotebookLMMCPServer {
   }
 
   /**
-   * Setup MCP request handlers
+   * Register all MCP request handlers on the given Server instance.
+   * Used by both the primary server (stdio) and per-session servers (HTTP).
    */
-  private setupHandlers(): void {
+  public registerHandlersOn(server: Server): void {
     // Register Resource Handlers (Resources, Templates, Completions)
-    this.resourceHandlers.registerHandlers(this.server);
+    this.resourceHandlers.registerHandlers(server);
 
     // List available tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
       log.info("📋 [MCP] list_tools request received");
       return {
         tools: this.toolDefinitions,
@@ -213,7 +214,7 @@ class NotebookLMMCPServer {
     });
 
     // Handle tool calls
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
       const progressToken = extractProgressToken(args);
 
@@ -225,7 +226,7 @@ class NotebookLMMCPServer {
       // Create progress callback function
       const sendProgress = async (message: string, progress?: number, total?: number) => {
         if (progressToken) {
-          await this.server.notification({
+          await server.notification({
             method: "notifications/progress",
             params: {
               progressToken,
@@ -501,6 +502,33 @@ class NotebookLMMCPServer {
   }
 
   /**
+   * Create a fresh MCP Server instance with all handlers registered.
+   * Used per HTTP session so each client gets its own Server (MCP SDK requirement).
+   * Managers (session, auth, library) are shared — only the SDK Server is per-session.
+   */
+  public createTransportServer(): Server {
+    const freshServer = new Server(
+      {
+        name: "notebooklm-mcp",
+        version: "2.0.0",
+      },
+      {
+        capabilities: {
+          tools: {},
+          resources: {},
+          resourceTemplates: {},
+          prompts: {},
+          completions: {},
+          logging: {},
+        },
+        instructions: SERVER_INSTRUCTIONS,
+      }
+    );
+    this.registerHandlersOn(freshServer);
+    return freshServer;
+  }
+
+  /**
    * Start the MCP server using stdio (default) or HTTP transport (issue #4).
    */
   async start(options: TransportOptions = { kind: "stdio" }): Promise<void> {
@@ -520,9 +548,7 @@ class NotebookLMMCPServer {
       await startHttpTransport({
         port: options.port,
         host: options.host,
-        connect: async (transport) => {
-          await this.server.connect(transport);
-        },
+        createServer: () => this.createTransportServer(),
       });
       log.success("✅ MCP Server connected via Streamable HTTP");
     } else {
