@@ -91,17 +91,6 @@ export interface TypingOptions {
 }
 
 /**
- * Options for waiting for answers
- */
-export interface WaitForAnswerOptions {
-  question?: string;
-  timeoutMs?: number;
-  pollIntervalMs?: number;
-  ignoreTexts?: string[];
-  debug?: boolean;
-}
-
-/**
  * Progress callback function for MCP progress notifications
  */
 export type ProgressCallback = (

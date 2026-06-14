@@ -359,11 +359,32 @@ All configuration is via environment variables and tool parameters. There is no 
 | `NOTEBOOKLM_AI_MARKER` | `true` | Inline AI-generated prefix on answers. |
 | `NOTEBOOKLM_AI_MARKER_PREFIX` | _(default text)_ | Override prefix string. |
 | `NOTEBOOKLM_FOLLOW_UP_REMINDER` | `false` | Re-enable the v1 follow-up reminder appended to answers. |
+| `NOTEBOOKLM_DIAGNOSTIC` | `false` | Opt-in: capture per-`ask_question` evidence (screenshots, DOM dumps, 3-selector matrix, 1Hz text trace) to `artifacts/notebooklm-debug/{ts}-{sessionId}/`. Zero overhead when unset. See [Debugging](#debugging-with-notebooklm_diagnostic) below. |
 | `BROWSER_CHANNEL` / `NOTEBOOKLM_BROWSER_CHANNEL` | `chrome` | `chromium` to force the bundled Patchright Chromium. |
 
 ---
 
-## Development
+## Debugging with `NOTEBOOKLM_DIAGNOSTIC`
+
+When `ask_question` times out or produces unexpected output, enable the opt-in diagnostic harness:
+
+```bash
+NOTEBOOKLM_DIAGNOSTIC=true npx notebooklm-mcp
+```
+
+Each `ask_question` call then writes 11 files to `artifacts/notebooklm-debug/{ISO-timestamp}-{sessionId}/`:
+
+- `screenshot-{0,1,2}.png` — full-page screenshots at T+0 (post-submit), T+5s, T+15s
+- `to-user-html-{0,1,2}.txt` — outer HTML of the last 3 `.to-user-container` elements
+- `to-user-text-{0,1,2}.txt` — innerText of the same
+- `candidates.json` — 3-selector matrix (primary + 2 fallbacks) at each timestamp
+- `poll-trace.jsonl` — 1Hz trace of selector text evolution for the first 15s
+
+The harness is strictly read-only — it does not affect `waitForStableAnswer` semantics. Default off; zero overhead. Use it to distinguish "selector stale", "NotebookLM not generating", or "browser error page" in <1 minute.
+
+Artifacts are written to the MCP server's CWD. Add `artifacts/notebooklm-debug/` to your `.gitignore` (the server's own `.gitignore` already does this) to avoid committing notebook screenshots.
+
+---
 
 ```bash
 npm run build      # tsc + chmod +x dist/index.js

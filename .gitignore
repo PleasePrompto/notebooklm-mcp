@@ -48,3 +48,7 @@ venv/
 .playwright-mcp/
 tmp/
 studio-*.png
+
+# Diagnostic artifacts (may contain notebook content)
+artifacts/notebooklm-debug/
+

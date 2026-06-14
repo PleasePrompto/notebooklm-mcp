@@ -7,10 +7,11 @@
  * even when the answer was already on screen. That logic is gone.
  *
  * What remains:
- *   - `snapshotAllResponses(page)` — used by `BrowserSession.ask()` as a
- *     fallback when the v2 chat snapshot returns nothing. It captures the
- *     visible answer texts *before* a new question is submitted so the
- *     stability detector can ignore them on the next turn.
+ *   - `snapshotAllResponses(page)` — LEGACY, no longer called. The new
+ *     `waitForStableAnswer` in `notebooklm/chat.ts` identifies the new
+ *     answer purely by DOM position (the last `.to-user-container` element)
+ *     and does not need a prior-text snapshot. Kept for back-compat with
+ *     any external callers; safe to delete in a future cleanup.
  */
 
 import type { Page } from "patchright";

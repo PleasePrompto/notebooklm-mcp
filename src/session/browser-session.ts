@@ -17,8 +17,7 @@ import type { BrowserContext, Page } from "patchright";
 import type { SharedContextManager } from "./shared-context-manager.js";
 import type { AuthManager } from "../auth/auth-manager.js";
 import { humanType, randomDelay } from "../utils/stealth-utils.js";
-import { snapshotAllResponses } from "../utils/page-utils.js";
-import { waitForStableAnswer, snapshotPriorAnswers } from "../notebooklm/chat.js";
+import { waitForStableAnswer } from "../notebooklm/chat.js";
 import {
   extractCitations as extractCitationsFromPage,
   type SourceFormat,
@@ -39,6 +38,7 @@ import {
 } from "../notebooklm/audio.js";
 import { CONFIG } from "../config.js";
 import { log } from "../utils/logger.js";
+import { runAskDiagnostics } from "../utils/diagnostics.js";
 import type { SessionInfo, ProgressCallback } from "../types.js";
 import { RateLimitError } from "../errors.js";
 
@@ -381,16 +381,6 @@ export class BrowserSession {
         }
       }
 
-      // Snapshot existing responses BEFORE asking — uses the v2 chat module
-      // (issue #43). Falls back to the legacy snapshot only if the v2 helper
-      // produced nothing, so we don't regress when the new selectors miss.
-      log.info(`  📸 Snapshotting existing responses...`);
-      let existingResponses = await snapshotPriorAnswers(page);
-      if (existingResponses.length === 0) {
-        existingResponses = await snapshotAllResponses(page);
-      }
-      log.success(`  ✅ Captured ${existingResponses.length} existing responses`);
-
       // Find the chat input
       const inputSelector = await this.findChatInput();
       if (!inputSelector) {
@@ -415,6 +405,13 @@ export class BrowserSession {
       await sendProgress?.("Submitting question...", 3, 5);
       await page.keyboard.press("Enter");
 
+      // Opt-in diagnostic capture (NOTEBOOKLM_DIAGNOSTIC=true). Runs BEFORE
+      // the wait so it can record the post-submit state in parallel with
+      // waitForStableAnswer's polling. No behavior change when env is unset.
+      if (process.env.NOTEBOOKLM_DIAGNOSTIC === "true") {
+        await runAskDiagnostics(page, this.sessionId, question);
+      }
+
       // Small pause after submit
       await randomDelay(1000, 1500);
 
@@ -427,7 +424,6 @@ export class BrowserSession {
         question,
         timeoutMs: CONFIG.answerTimeoutMs,
         pollIntervalMs: 750,
-        ignoreTexts: existingResponses,
       });
 
       if (!answer) {

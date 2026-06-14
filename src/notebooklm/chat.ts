@@ -198,7 +198,12 @@ export interface AskOptions {
   timeoutMs?: number;
   /** Poll cadence. Default 750 ms. Lower values increase load without much benefit. */
   pollIntervalMs?: number;
-  /** Texts known *before* the question was submitted. Used to skip prior answers. */
+  /**
+   * @deprecated Filtering by prior-text no longer used. The new answer is
+   * always the LAST `.to-user-container` element; position is the identity.
+   * Kept for caller API compatibility. `snapshotPriorAnswers` still returns
+   * the texts for logging/inspection.
+   */
   ignoreTexts?: string[];
   /** How many consecutive identical polls count as "answer settled". Default 3. */
   stablePolls?: number;
@@ -223,22 +228,27 @@ export async function snapshotPriorAnswers(page: Page): Promise<string[]> {
  * Returns the sanitised final text, or `null` on timeout. The function never
  * throws on UI hiccups — failure surfaces as `null` so the caller can decide
  * how to recover (retry vs. report error to the user).
+ *
+ * The new answer is identified by DOM position (the last `.to-user-container`
+ * element), not by text matching — so a new answer that textually duplicates
+ * a prior response is still correctly detected.
  */
 export async function waitForStableAnswer(
   page: Page,
   options: AskOptions = {}
 ): Promise<string | null> {
+  // `ignoreTexts` is intentionally NOT destructured: the field is kept on
+  // AskOptions for caller API compatibility, but the new answer is identified
+  // by DOM position (last .to-user-container) rather than by text matching.
   const {
     question = "",
     timeoutMs = 600_000,
     pollIntervalMs = 750,
-    ignoreTexts = [],
     stablePolls = 3,
   } = options;
 
   const deadline = Date.now() + timeoutMs;
   const echoLower = question.trim().toLowerCase();
-  const ignoreSet = new Set(ignoreTexts.map((t) => t.trim()).filter(Boolean));
   // Hard ceiling on poll iterations defends against pathological
   // pollIntervalMs values combined with zombie-page sleep returns (issue #16).
   const maxPolls = Math.max(8, Math.ceil(timeoutMs / Math.max(50, pollIntervalMs)) + 4);
@@ -266,9 +276,8 @@ export async function waitForStableAnswer(
 
     if (candidate) {
       const isEcho = candidate.toLowerCase() === echoLower;
-      const isPrior = ignoreSet.has(candidate);
 
-      if (!isEcho && !isPrior) {
+      if (!isEcho) {
         // Loading placeholders ("Parsing the data…", "Thinking…", …) are
         // stable while Gemini is still working — the old code locked on to
         // them and returned them as the final answer. Filter them out.

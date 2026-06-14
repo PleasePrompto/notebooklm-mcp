@@ -27,7 +27,7 @@
  *      after the dialog closes (up to 90 s — URL crawls are slow).
  */
 
-import type { Page } from "patchright";
+import type { Locator, Page } from "patchright";
 import { Selectors, joinAlt } from "./selectors.js";
 import { safeSleep, isRecoverable } from "../browser/watchdog.js";
 import { log } from "../utils/logger.js";
@@ -86,9 +86,7 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
       const currentUrl = page.url();
       const currentUuid = currentUrl.match(/notebook\/([a-f0-9-]+)/)?.[1];
       if (currentUuid && currentUuid !== expectedUuid) {
-        log.error(
-          `  ❌ Notebook redirect: expected ${expectedUuid}, got ${currentUuid}`
-        );
+        log.error(`  ❌ Notebook redirect: expected ${expectedUuid}, got ${currentUuid}`);
         return {
           success: false,
           type: input.type,
@@ -182,60 +180,101 @@ export async function countSources(page: Page): Promise<number> {
 /**
  * Open the Add-source modal. Order of attempts:
  *   1. Dialog already open → use it (auto-modal on fresh notebooks).
- *   2. Click the sidebar "Add source" button.
- *   3. Last resort: navigate to `?addSource=true`, which auto-opens.
+ *   2. Open the Sources panel if the current layout exposes one.
+ *   3. Click the sidebar "Add source" / "Add sources" button.
+ *   4. Last resort: navigate to `?addSource=true`, which auto-opens.
  */
 async function openAddSourceOverlay(page: Page): Promise<void> {
-  if (await isOverlayVisible(page)) {
-    log.info("  ✅ Add-source dialog already open, reusing");
+  if (await isAddSourceUiVisible(page)) {
+    log.info("  ✅ Add-source UI already open, reusing");
     return;
   }
+
+  await ensureSourcesPanel(page);
+  if (await isAddSourceUiVisible(page)) return;
 
   // Try the sidebar button first — fastest path on a populated notebook.
   try {
-    await page
-      .locator(joinAlt(Selectors.sources.addButton))
-      .first()
-      .click({ timeout: 5_000 });
-    await page
-      .locator(Selectors.sources.overlayPane)
-      .first()
-      .waitFor({ state: "visible", timeout: 8_000 });
+    await page.locator(joinAlt(Selectors.sources.addButton)).first().click({ timeout: 5_000 });
+    await waitForAddSourceUi(page, 8_000);
     return;
   } catch (err) {
-    log.warning(`  ⚠️  Add-source button click failed (${err}), trying ?addSource=true URL fallback`);
+    log.warning(
+      `  ⚠️  Add-source button click failed (${err}), trying ?addSource=true URL fallback`
+    );
   }
 
   // URL fallback — useful when the sidebar button is hidden or covered.
+  //
+  // PATCH 2026-05: drop the `!url.includes("addSource=true")` short-circuit.
+  // Once a previous attempt navigates to `?addSource=true` and the modal
+  // never opens (e.g. selector miss), the URL stays sticky on every
+  // subsequent BrowserSession reuse. The next add_source call then fails
+  // the if-check and falls straight through to the `throw` below — a
+  // permanent dead state cleared only by killing the session.
+  // Fix: strip any existing `addSource`/`_t` params first, then re-add
+  // `addSource=true` plus a `_t` cache-buster so the navigation is
+  // guaranteed to be a fresh hit even when the URL was already sticky.
+  // See issue #46 ("post-bootstrap add_source silent-drop").
   const url = page.url();
-  if (url && /\/notebook\//.test(url) && !url.includes("addSource=true")) {
+  if (url && /\/notebook\//.test(url)) {
     const u = new URL(url);
+    u.searchParams.delete("addSource");
+    u.searchParams.delete("_t");
     u.searchParams.set("addSource", "true");
+    u.searchParams.set("_t", String(Date.now()));
     await page.goto(u.toString(), { waitUntil: "domcontentloaded", timeout: 15_000 });
-    await page
-      .locator(Selectors.sources.overlayPane)
-      .first()
-      .waitFor({ state: "visible", timeout: 10_000 });
+    await waitForAddSourceUi(page, 10_000);
     return;
   }
 
   throw new Error('Could not open the "Add source" dialog');
 }
 
-async function isOverlayVisible(page: Page): Promise<boolean> {
-  return page
+async function isAddSourceUiVisible(page: Page): Promise<boolean> {
+  const overlayVisible = await page
     .locator(Selectors.sources.overlayPane)
+    .first()
+    .isVisible({ timeout: 500 })
+    .catch(() => false);
+  if (overlayVisible) return true;
+
+  return page
+    .locator(joinAlt(Selectors.sources.sourcePickerReady))
     .first()
     .isVisible({ timeout: 500 })
     .catch(() => false);
 }
 
+async function waitForAddSourceUi(page: Page, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isAddSourceUiVisible(page)) return;
+    await safeSleep(page, 300);
+  }
+  throw new Error('Could not open the "Add source" dialog');
+}
+
+async function ensureSourcesPanel(page: Page): Promise<void> {
+  const sourcesTab = page.locator(joinAlt(Selectors.tabs.sources)).first();
+  if (await sourcesTab.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await sourcesTab.click({ timeout: 5_000 }).catch(() => undefined);
+    await safeSleep(page, 500);
+  }
+}
+
+async function addSourceScope(page: Page): Promise<Locator> {
+  const overlay = page.locator(Selectors.sources.overlayPane).first();
+  if (await overlay.isVisible({ timeout: 500 }).catch(() => false)) return overlay;
+  return page.locator("body");
+}
+
 async function pickSourceType(page: Page, type: SourceType): Promise<void> {
   const candidates =
     type === "url" ? Selectors.sources.sourceTypeUrl : Selectors.sources.sourceTypeText;
-  const overlay = page.locator(Selectors.sources.overlayPane).first();
+  const scope = await addSourceScope(page);
   for (const sel of candidates) {
-    const target = overlay.locator(sel).first();
+    const target = scope.locator(sel).first();
     if (await target.isVisible({ timeout: 1_000 }).catch(() => false)) {
       await target.click();
       // Sub-dialog needs a moment to hydrate before we type.
@@ -247,7 +286,7 @@ async function pickSourceType(page: Page, type: SourceType): Promise<void> {
 }
 
 async function fillSourceContent(page: Page, input: AddSourceInput): Promise<void> {
-  const overlay = page.locator(Selectors.sources.overlayPane).first();
+  const scope = await addSourceScope(page);
 
   // Wait for the overlay to actually contain a textarea (the picker swap is
   // animated, so a tight 500 ms wait beats a busy poll).
@@ -256,7 +295,12 @@ async function fillSourceContent(page: Page, input: AddSourceInput): Promise<voi
   const inputCandidates = [
     Selectors.sources.overlayTextarea,
     Selectors.sources.overlayInput,
+    'textarea[aria-label*="Pasted" i]',
+    'textarea[placeholder*="Paste text" i]',
+    'textarea[aria-label*="Enter URLs" i]',
+    'textarea[placeholder*="Paste any links" i]',
     `${Selectors.sources.overlayPane} textarea:not(.query-box-input):not(.query-box-textarea)`,
+    "textarea:not(.query-box-input):not(.query-box-textarea)",
   ];
 
   let target = null;
@@ -287,7 +331,7 @@ async function fillSourceContent(page: Page, input: AddSourceInput): Promise<voi
       `${Selectors.sources.overlayPane} input[type="text"]:not([readonly])`,
     ];
     for (const sel of titleSelectors) {
-      const candidate = overlay.locator(sel).first();
+      const candidate = scope.locator(sel).first();
       if (await candidate.isVisible({ timeout: 500 }).catch(() => false)) {
         await candidate.fill(input.title).catch(() => undefined);
         titleInputFound = true;
@@ -306,9 +350,9 @@ async function fillSourceContent(page: Page, input: AddSourceInput): Promise<voi
 }
 
 async function confirmInsert(page: Page): Promise<void> {
-  const overlay = page.locator(Selectors.sources.overlayPane).first();
+  const scope = await addSourceScope(page);
   for (const sel of Selectors.sources.insertConfirm) {
-    const btn = overlay.locator(sel).first();
+    const btn = scope.locator(sel).first();
     if (await btn.isVisible({ timeout: 1_000 }).catch(() => false)) {
       const disabled = await btn.isDisabled().catch(() => false);
       if (disabled) continue;
