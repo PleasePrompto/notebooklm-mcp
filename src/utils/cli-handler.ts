@@ -56,14 +56,14 @@ export class CliHandler {
         throw new Error("Invalid profile. Allowed: minimal, standard, full");
       }
       await this.settingsManager.saveSettings({ profile: value as ProfileName });
-      console.log(`✅ Profile set to: ${value}`);
+      console.error(`✅ Profile set to: ${value}`);
     } else if (key === "disabled-tools") {
       const tools = value
         .split(",")
         .map((t) => t.trim())
         .filter((t) => t.length > 0);
       await this.settingsManager.saveSettings({ disabledTools: tools });
-      console.log(`✅ Disabled tools set to: ${tools.join(", ") || "(none)"}`);
+      console.error(`✅ Disabled tools set to: ${tools.join(", ") || "(none)"}`);
     } else {
       throw new Error(`Unknown setting: ${key}. Allowed: profile, disabled-tools`);
     }
@@ -73,20 +73,20 @@ export class CliHandler {
     const settings = this.settingsManager.getEffectiveSettings();
     const profiles = this.settingsManager.getProfiles();
 
-    console.log("🔧 Current Configuration:");
-    console.log(`  Profile: ${settings.profile}`);
-    console.log(
+    console.error("🔧 Current Configuration:");
+    console.error(`  Profile: ${settings.profile}`);
+    console.error(
       `  Disabled Tools: ${settings.disabledTools.length > 0 ? settings.disabledTools.join(", ") : "(none)"}`
     );
-    console.log(`  Settings File: ${this.settingsManager.getSettingsPath()}`);
-    console.log("");
-    console.log("📋 Active Tools in this profile:");
+    console.error(`  Settings File: ${this.settingsManager.getSettingsPath()}`);
+    console.error("");
+    console.error("📋 Active Tools in this profile:");
 
     const activeInProfile = profiles[settings.profile];
     if (activeInProfile.includes("*")) {
-      console.log("  - All Tools (except disabled)");
+      console.error("  - All Tools (except disabled)");
     } else {
-      activeInProfile.forEach((t) => console.log(`  - ${t}`));
+      activeInProfile.forEach((t) => console.error(`  - ${t}`));
     }
   }
 
@@ -95,11 +95,11 @@ export class CliHandler {
       profile: "full",
       disabledTools: [],
     });
-    console.log("✅ Configuration reset to defaults (Profile: full, No disabled tools)");
+    console.error("✅ Configuration reset to defaults (Profile: full, No disabled tools)");
   }
 
   private printHelp(): void {
-    console.log(`
+    console.error(`
 Usage: npx notebooklm-mcp config <command> [args]
 
 Commands:
