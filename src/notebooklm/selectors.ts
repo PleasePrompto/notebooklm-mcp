@@ -313,7 +313,7 @@ export const Selectors = {
      * contains the Download item.
      */
     audioMoreMenuButton: [
-      "artifact-library-item button:has(mat-icon:text-is(\"more_vert\"))",
+      'artifact-library-item button:has(mat-icon:text-is("more_vert"))',
       'artifact-library-item button[aria-label*="mehr" i]',
       'artifact-library-item button[aria-label*="more" i]',
       'artifact-library-item button[aria-label*="plus" i]',

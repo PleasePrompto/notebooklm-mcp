@@ -13,12 +13,8 @@
  * other. Session lifecycle is fully owned by the SDK; we just route.
  */
 
-import {
-  createServer,
-  IncomingMessage,
-  type Server as HttpServer,
-  ServerResponse,
-} from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { createServer, type Server as HttpServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import type { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
