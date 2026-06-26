@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "postbuild": "chmod +x dist/index.js",
+    "postbuild": "node -e \"if (process.platform !== 'win32') require('node:fs').chmodSync('dist/index.js', 0o755)\"",
     "watch": "tsc --watch",
     "dev": "tsx watch src/index.ts",
     "prepare": "npm run build",

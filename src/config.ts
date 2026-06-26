@@ -10,6 +10,7 @@
  */
 
 import envPaths from "env-paths";
+import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "fs";
 import path from "path";
 
@@ -262,9 +263,56 @@ function buildConfig(): Config {
 }
 
 /**
- * Global configuration instance
+ * Base configuration instance.
+ *
+ * Tool-level browser options are scoped through AsyncLocalStorage below so
+ * concurrent MCP calls cannot overwrite each other's effective CONFIG values.
+ * Process-level mutations, such as account profile selection during startup,
+ * still update this base object through the CONFIG proxy setter.
  */
-export const CONFIG: Config = buildConfig();
+const BASE_CONFIG: Config = buildConfig();
+
+const configStorage = new AsyncLocalStorage<Config>();
+
+function getEffectiveConfig(): Config {
+  return configStorage.getStore() ?? BASE_CONFIG;
+}
+
+/**
+ * Global configuration view.
+ *
+ * Consumers keep importing CONFIG as before, but reads resolve to the current
+ * async call's scoped config when present. Writes intentionally update the base
+ * config; runtime per-call overrides should use `withConfig`.
+ */
+export const CONFIG: Config = new Proxy(BASE_CONFIG, {
+  get(target, prop, receiver) {
+    if (typeof prop === "symbol") {
+      return Reflect.get(getEffectiveConfig(), prop, receiver);
+    }
+    const active = getEffectiveConfig() as unknown as Record<string, unknown>;
+    if (prop in active) return active[prop];
+    return Reflect.get(target, prop, receiver);
+  },
+  set(target, prop, value, receiver) {
+    return Reflect.set(target, prop, value, receiver);
+  },
+  ownKeys(target) {
+    return Reflect.ownKeys(target);
+  },
+  getOwnPropertyDescriptor(target, prop) {
+    const descriptor = Reflect.getOwnPropertyDescriptor(target, prop);
+    if (!descriptor) return descriptor;
+    return {
+      ...descriptor,
+      value: Reflect.get(getEffectiveConfig(), prop),
+    };
+  },
+}) as Config;
+
+export async function withConfig<T>(config: Config, fn: () => Promise<T>): Promise<T> {
+  return await configStorage.run(config, fn);
+}
 
 /**
  * Ensure all required directories exist

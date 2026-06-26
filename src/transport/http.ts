@@ -15,10 +15,9 @@
 
 import {
   createServer,
-  IncomingMessage,
   type Server as HttpServer,
-  ServerResponse,
 } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import type { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
