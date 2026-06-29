@@ -135,12 +135,20 @@ export const Selectors = {
       'button[aria-label*="ソースを追加" i]',
     ],
     /**
-     * Real Material modal. `[role="dialog"]` is set by Angular synchronously
-     * the moment the modal mounts — race-free against the `.mdc-dialog--open`
-     * animation class and resistant to Material-UI version bumps. Avoid
-     * `.cdk-overlay-pane` (matches every dropdown / emoji picker / menu).
+     * Real Material add-source modal. The generic `[role="dialog"]` selector
+     * can match unrelated overlays, so anchor to visible add-source states:
+     * the initial picker, the URL entry dialog, or stable text shown in the
+     * source picker. Avoid `.cdk-overlay-pane` (matches every dropdown / menu).
      */
-    overlayPane: '[role="dialog"]',
+    overlayPane:
+      '[role="dialog"]:visible:has(button.drop-zone-icon-button), ' +
+      '[role="dialog"]:visible:has(textarea[aria-label="Enter URLs"]), ' +
+      '[role="dialog"]:visible:has-text("Website and YouTube URLs"), ' +
+      '[role="dialog"]:visible:has-text("Paste any links"), ' +
+      '[role="dialog"]:visible:has-text("Upload files"), ' +
+      '[role="dialog"]:visible:has-text("Websites"), ' +
+      '[role="dialog"]:visible:has-text("Copied text"), ' +
+      '[role="dialog"]:visible:has-text("or drop your files")',
     overlayInput: '[role="dialog"] input[type="text"]:not([readonly])',
     overlayTextarea: '[role="dialog"] textarea',
     /**
@@ -201,6 +209,9 @@ export const Selectors = {
      */
     insertConfirm: [
       // Class-anchored (language-free).
+      'button[mat-flat-button]:has-text("Insert")',
+      'button.mdc-button--unelevated:has-text("Insert")',
+      'button.mat-mdc-unelevated-button:has-text("Insert")',
       'button.mdc-button--raised:has-text("Insert")',
       'button.mat-flat-button:has-text("Insert")',
       'button[color="primary"]:has-text("Insert")',
@@ -313,7 +324,7 @@ export const Selectors = {
      * contains the Download item.
      */
     audioMoreMenuButton: [
-      "artifact-library-item button:has(mat-icon:text-is(\"more_vert\"))",
+      'artifact-library-item button:has(mat-icon:text-is("more_vert"))',
       'artifact-library-item button[aria-label*="mehr" i]',
       'artifact-library-item button[aria-label*="more" i]',
       'artifact-library-item button[aria-label*="plus" i]',
