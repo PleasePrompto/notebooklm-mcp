@@ -26,8 +26,11 @@ import {
 } from "../notebooklm/citations.js";
 import {
   addSource as addSourceToPage,
+  createNotebook as createNotebookOnPage,
   type AddSourceInput,
   type AddSourceResult,
+  type CreateNotebookInput,
+  type CreateNotebookResult,
 } from "../notebooklm/sources.js";
 import {
   generateAudioOverview as generateAudioOnPage,
@@ -37,6 +40,11 @@ import {
   type AudioGenerationResult,
   type DownloadAudioResult,
 } from "../notebooklm/audio.js";
+import {
+  deleteNotebookByTitle as deleteNotebookOnPage,
+  type DeleteNotebookResult,
+} from "../notebooklm/notebooks.js";
+import { Selectors, joinAlt } from "../notebooklm/selectors.js";
 import { CONFIG } from "../config.js";
 import { log } from "../utils/logger.js";
 import type { SessionInfo, ProgressCallback } from "../types.js";
@@ -169,9 +177,38 @@ export class BrowserSession {
    *
    * Based on Python _wait_for_ready() from browser_session.py:104-113
    */
+  /**
+   * A session whose URL is the NotebookLM home (no `/notebook/` segment) is a
+   * "home-mode" session, used only to create a new notebook. Its readiness
+   * signal is the "Create new" button, not the per-notebook chat input.
+   */
+  private isHomeMode(): boolean {
+    return !this.notebookUrl.includes("/notebook/");
+  }
+
   private async waitForNotebookLMReady(): Promise<void> {
     if (!this.page) {
       throw new Error("Page not initialized");
+    }
+
+    // Home-mode: wait for the "Create new" button instead of the chat input.
+    if (this.isHomeMode()) {
+      log.info("  ⏳ Home mode — waiting for the Create button...");
+      try {
+        await this.page.waitForSelector(joinAlt(Selectors.notebooks.createButton), {
+          timeout: 15000,
+          state: "visible",
+        });
+        log.success("  ✅ Home page ready (Create button visible)!");
+      } catch (error) {
+        log.error(`  ❌ NotebookLM home not ready: ${error}`);
+        throw new Error(
+          "Could not find the NotebookLM 'Create new' button on the home page. " +
+            "The selector may have changed — verify Selectors.notebooks.createButton.",
+          { cause: error }
+        );
+      }
+      return;
     }
 
     try {
@@ -491,6 +528,20 @@ export class BrowserSession {
       await this.init();
     }
     return await addSourceToPage(this.page!, input);
+  }
+
+  async createNotebook(input: CreateNotebookInput): Promise<CreateNotebookResult> {
+    if (!this.initialized || !this.page || this.isPageClosedSafe()) {
+      await this.init();
+    }
+    return await createNotebookOnPage(this.page!, input);
+  }
+
+  async deleteNotebook(title: string): Promise<DeleteNotebookResult> {
+    if (!this.initialized || !this.page || this.isPageClosedSafe()) {
+      await this.init();
+    }
+    return await deleteNotebookOnPage(this.page!, title);
   }
 
   /**
