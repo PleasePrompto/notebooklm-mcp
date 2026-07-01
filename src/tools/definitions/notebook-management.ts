@@ -8,6 +8,135 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
  */
 export const notebookManagementTools: Tool[] = [
   {
+    name: "create_notebook",
+    description:
+      "Create a BRAND-NEW NotebookLM notebook from scratch and seed it with a " +
+      "mandatory first source, then auto-register it in the local library.\n\n" +
+      "NotebookLM has no empty-notebook concept — a notebook is born together " +
+      "with its first source, so `source` is REQUIRED:\n" +
+      '  • `source.type = "url"` — NotebookLM crawls and indexes a website\n' +
+      '  • `source.type = "text"` — the raw text is ingested as a document\n\n' +
+      "On success returns `notebookId` (the new UUID), `notebookUrl`, and the " +
+      "first-source result. The notebook is registered in the library using " +
+      "the supplied `name`/`description`/`topics`, so subsequent tools can " +
+      "target it by `notebook_id`. Add more sources afterwards with " +
+      "`add_source`.\n\n" +
+      "Distinct from `add_notebook`, which only REGISTERS an already-existing " +
+      "notebook by its share URL. Free-tier limits: 100 notebooks · 50 " +
+      "sources each · 50 queries/day.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: {
+          type: "object",
+          description: "The mandatory first source the notebook is created around.",
+          properties: {
+            type: {
+              type: "string",
+              enum: ["url", "text"],
+              description:
+                "`url` crawls the supplied website; `text` ingests `content` " +
+                "verbatim as a copied document.",
+            },
+            content: {
+              type: "string",
+              description:
+                "When `type=url`: a fully-qualified URL (https://…). " +
+                "When `type=text`: the raw text body.",
+            },
+            title: {
+              type: "string",
+              description: "Optional display title for the source (recommended for text).",
+            },
+          },
+          required: ["type", "content"],
+        },
+        name: {
+          type: "string",
+          description:
+            "Display name for the new notebook in the local library " + "(e.g. 'Contratos 2026').",
+        },
+        description: {
+          type: "string",
+          description: "1–2 sentence summary of what the notebook will contain.",
+        },
+        topics: {
+          type: "array",
+          items: { type: "string" },
+          description: "3–5 topics covered. Used by `search_notebooks`.",
+        },
+        use_cases: {
+          type: "array",
+          items: { type: "string" },
+          description: "When this notebook should be consulted.",
+        },
+        set_active: {
+          type: "boolean",
+          description:
+            "If true (default), make the new notebook the active one so later " +
+            "tools default to it without needing `notebook_id`.",
+        },
+        show_browser: {
+          type: "boolean",
+          description: "Show the browser window for debugging. Default: false.",
+        },
+      },
+      required: ["source", "name"],
+    },
+    annotations: {
+      title: "Create new notebook",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "delete_notebook",
+    description:
+      "PERMANENTLY delete a notebook on the NotebookLM (Google) side — it is " +
+      "removed from all locations and cannot be recovered — then drop it from " +
+      "the local library.\n\n" +
+      "Distinct from `remove_notebook`, which only unregisters the notebook " +
+      "locally and leaves it intact on Google.\n\n" +
+      "Targeting: NotebookLM's home list exposes no notebook UUID, so the " +
+      "notebook is matched by a substring of its visible title. Because this " +
+      "is destructive, deletion is refused unless exactly one notebook matches " +
+      "(zero → not found; more than one → ambiguous, pass a longer title). " +
+      "Pass `notebook_id` to " +
+      "also clean up the matching library entry (its library name is used as " +
+      "the title when `title` is omitted). NOTE: a notebook's NotebookLM title " +
+      "may differ from its library name if the title was auto-generated — in " +
+      "that case pass the exact `title` as shown in NotebookLM.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Exact title of the notebook as shown on the NotebookLM home page.",
+        },
+        notebook_id: {
+          type: "string",
+          description:
+            "Library notebook id. Its stored name is used as the title when " +
+            "`title` is omitted, and the local library entry is removed on " +
+            "successful deletion.",
+        },
+        show_browser: {
+          type: "boolean",
+          description: "Show the browser window for debugging. Default: false.",
+        },
+      },
+    },
+    annotations: {
+      title: "Delete notebook (permanent)",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  {
     name: "add_notebook",
     description:
       "Register a NotebookLM notebook in the local library so it can be " +
@@ -126,9 +255,9 @@ export const notebookManagementTools: Tool[] = [
       "caller omits `notebook_id` / `notebook_url`.\n\n" +
       "When to call:\n" +
       "  • The user explicitly switches context (e.g. \"Let's work on " +
-      "React now\")\n" +
+      'React now")\n' +
       "  • Task obviously needs a different notebook than the current one — " +
-      "announce the switch (\"Switching to the React notebook…\") before " +
+      'announce the switch ("Switching to the React notebook…") before ' +
       "calling.\n" +
       "  • If the right notebook is ambiguous, ask the user first instead " +
       "of guessing.",
@@ -235,8 +364,8 @@ export const notebookManagementTools: Tool[] = [
       "Search the library by free-text query — matches against `name`, " +
       "`description`, `topics`, and `tags`. Returns notebook objects with " +
       "their `id` so you can chain into `select_notebook` etc.\n\n" +
-      "Use this when the user references a notebook by topic (\"the React " +
-      "one\") instead of by exact name. If multiple notebooks match, " +
+      'Use this when the user references a notebook by topic ("the React ' +
+      'one") instead of by exact name. If multiple notebooks match, ' +
       "propose the top 1–2 and let the user choose.",
     inputSchema: {
       type: "object",
@@ -260,7 +389,7 @@ export const notebookManagementTools: Tool[] = [
       "Aggregate statistics about the local notebook library: " +
       "`total_notebooks`, `active_notebook` (id), `most_used_notebook`, " +
       "`total_queries`, `last_modified`. Useful as a quick health check or " +
-      "when the user asks \"what notebooks do I have?\".",
+      'when the user asks "what notebooks do I have?".',
     inputSchema: {
       type: "object",
       properties: {},

@@ -139,10 +139,15 @@ export const Selectors = {
      * the moment the modal mounts — race-free against the `.mdc-dialog--open`
      * animation class and resistant to Material-UI version bumps. Avoid
      * `.cdk-overlay-pane` (matches every dropdown / emoji picker / menu).
+     *
+     * We qualify with `.mat-mdc-dialog-container` so `.first()` never lands on
+     * a stray `[role="dialog"]` — on a freshly-created notebook the cover UI
+     * mounts a hidden `emoji-keyboard` dialog *before* the real add-source
+     * dialog in DOM order, which would otherwise shadow it.
      */
-    overlayPane: '[role="dialog"]',
-    overlayInput: '[role="dialog"] input[type="text"]:not([readonly])',
-    overlayTextarea: '[role="dialog"] textarea',
+    overlayPane: '[role="dialog"].mat-mdc-dialog-container',
+    overlayInput: '[role="dialog"].mat-mdc-dialog-container input[type="text"]:not([readonly])',
+    overlayTextarea: '[role="dialog"].mat-mdc-dialog-container textarea',
     /**
      * Source-type buttons in the Add-source overlay. Google ships them
      * *without* aria-labels — the only stable, language-agnostic anchor is
@@ -313,7 +318,7 @@ export const Selectors = {
      * contains the Download item.
      */
     audioMoreMenuButton: [
-      "artifact-library-item button:has(mat-icon:text-is(\"more_vert\"))",
+      'artifact-library-item button:has(mat-icon:text-is("more_vert"))',
       'artifact-library-item button[aria-label*="mehr" i]',
       'artifact-library-item button[aria-label*="more" i]',
       'artifact-library-item button[aria-label*="plus" i]',
@@ -341,6 +346,29 @@ export const Selectors = {
 
   notebooks: {
     projectCard: 'button[aria-labelledby*="project-"]',
+    /**
+     * "Create new" / "Criar novo" button on the NotebookLM home page. The
+     * project never created notebooks before, so these anchors are new: the
+     * class `.create-new-button` is the language-agnostic primary path, with
+     * aria-label + visible-text fallbacks for the eight major locales.
+     */
+    createButton: [
+      "button.create-new-button",
+      "button.create-new-label-button",
+      'button[aria-label*="create new" i]',
+      'button[aria-label*="new notebook" i]',
+      'button[aria-label*="neues notebook" i]',
+      'button[aria-label*="novo notebook" i]',
+      'button:has-text("Create new")',
+      'button:has-text("Criar")',
+      'button:has-text("Novo")',
+      'button:has-text("Neu erstellen")',
+      'button:has-text("Créer")',
+      'button:has-text("Crear")',
+      'button:has-text("Crea")',
+      'button:has-text("Nieuw")',
+      'button:has-text("新規作成")',
+    ],
     cardMenuButton: [
       'button[aria-label*="menu" i]',
       'button[aria-label*="options" i]',
@@ -351,7 +379,19 @@ export const Selectors = {
       'button[aria-label*="opções" i]',
       'button[aria-label*="メニュー" i]',
     ],
+    /**
+     * The per-row "actions" menu trigger on the home list (verified live):
+     * `<button class="mat-mdc-menu-trigger project-button-more-menu-button"
+     * aria-label="Menu de ações do projeto">`. Used to open the card menu that
+     * holds Delete/Rename/Pin. Anchored on class first (language-free).
+     */
+    actionsMenuTrigger: [
+      "button.project-button-more-menu-button",
+      'button.mat-mdc-menu-trigger[aria-label*="ações do projeto" i]',
+      'button.mat-mdc-menu-trigger[aria-label*="project actions" i]',
+    ],
     deleteButton: [
+      '[role="menuitem"]:has(mat-icon:text-is("delete"))',
       '[role="menuitem"]:has-text("Delete")',
       '[role="menuitem"]:has-text("Löschen")',
       '[role="menuitem"]:has-text("Supprimer")',

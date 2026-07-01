@@ -50,6 +50,24 @@ export interface AddSourceResult {
   message?: string;
 }
 
+export interface CreateNotebookInput {
+  /** First source — NotebookLM cannot create an empty notebook. */
+  source: AddSourceInput;
+}
+
+export interface CreateNotebookResult {
+  success: boolean;
+  /** UUID of the freshly-created notebook (from the resulting URL). */
+  notebookId?: string;
+  /** Full NotebookLM URL of the new notebook. */
+  notebookUrl?: string;
+  /** Outcome of ingesting the mandatory first source. */
+  source?: AddSourceResult;
+  message?: string;
+}
+
+const NOTEBOOKLM_HOME = "https://notebooklm.google.com/";
+
 export async function addSource(page: Page, input: AddSourceInput): Promise<AddSourceResult> {
   const initialUrl = page.url();
   const expectedUuid = initialUrl.match(/notebook\/([a-f0-9-]+)/)?.[1];
@@ -86,9 +104,7 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
       const currentUrl = page.url();
       const currentUuid = currentUrl.match(/notebook\/([a-f0-9-]+)/)?.[1];
       if (currentUuid && currentUuid !== expectedUuid) {
-        log.error(
-          `  ❌ Notebook redirect: expected ${expectedUuid}, got ${currentUuid}`
-        );
+        log.error(`  ❌ Notebook redirect: expected ${expectedUuid}, got ${currentUuid}`);
         return {
           success: false,
           type: input.type,
@@ -136,6 +152,107 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
       type: input.type,
       sourceCountBefore: 0,
       sourceCountAfter: 0,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Create a brand-new NotebookLM notebook, seeded with a mandatory first
+ * source. NotebookLM has no "empty notebook" concept — creation is coupled to
+ * the first source. Flow:
+ *   1. Go to the home page and click "Create new".
+ *   2. NotebookLM navigates to a fresh `/notebook/<uuid>` and auto-opens the
+ *      Add-source overlay. We capture the new UUID from the URL.
+ *   3. Reuse the add_source overlay helpers to ingest the first source.
+ */
+export async function createNotebook(
+  page: Page,
+  input: CreateNotebookInput
+): Promise<CreateNotebookResult> {
+  log.info(`🆕 [create_notebook] seeding with a ${input.source.type} source`);
+  try {
+    // 1. Ensure we are on the home page (the create button lives there, not
+    //    inside an existing notebook).
+    const url = page.url();
+    if (!url.includes("notebooklm.google.com") || url.includes("/notebook/")) {
+      await page.goto(NOTEBOOKLM_HOME, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await safeSleep(page, 1_500);
+    }
+
+    // 2. Click "Create new".
+    const createBtn = page.locator(joinAlt(Selectors.notebooks.createButton)).first();
+    await createBtn.waitFor({ state: "visible", timeout: 15_000 });
+    await createBtn.click();
+    log.info("  ✅ Create button clicked");
+
+    // 3. Wait for the redirect to the fresh notebook and capture its UUID.
+    //    Require a *full* UUID — the transient `/notebook/create` URL would
+    //    otherwise match a short prefix like "c".
+    const UUID_RE = /notebook\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
+    let newUuid: string | undefined;
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      newUuid = page.url().match(UUID_RE)?.[1];
+      if (newUuid) break;
+      await safeSleep(page, 500);
+    }
+    if (!newUuid) {
+      return {
+        success: false,
+        message:
+          "Clicked Create but NotebookLM did not navigate to a new " +
+          "/notebook/<uuid> within 30 s. The home-page create-button selector " +
+          "may have changed — please verify Selectors.notebooks.createButton.",
+      };
+    }
+    const notebookUrl = `${NOTEBOOKLM_HOME}notebook/${newUuid}`;
+    log.success(`  ✅ New notebook created: ${newUuid}`);
+
+    // 4. Ingest the mandatory first source, reusing the add_source overlay
+    //    helpers. A fresh notebook auto-opens the picker (URL gains
+    //    `?addSource=true`); wait for the real dialog to mount, then let
+    //    openAddSourceOverlay detect the already-open dialog and reuse it.
+    await page
+      .locator(Selectors.sources.overlayPane)
+      .first()
+      .waitFor({ state: "visible", timeout: 15_000 })
+      .catch(() => undefined);
+    await openAddSourceOverlay(page);
+    await pickSourceType(page, input.source.type);
+    await fillSourceContent(page, input.source);
+    const before = await countSources(page);
+    await confirmInsert(page);
+    await waitForOverlayToClose(page);
+    const after = await waitForSourceCountIncrease(page, before, 90_000);
+
+    const sourceOk = after > before;
+    const sourceResult: AddSourceResult = {
+      success: sourceOk,
+      type: input.source.type,
+      sourceCountBefore: before,
+      sourceCountAfter: after,
+      message: sourceOk
+        ? undefined
+        : (await readDialogError(page)) ||
+          "Notebook was created but the first source did not appear within 90 s " +
+            "(NotebookLM may still be indexing).",
+    };
+
+    return {
+      success: sourceOk,
+      notebookId: newUuid,
+      notebookUrl,
+      source: sourceResult,
+      message: sourceOk
+        ? undefined
+        : "Notebook created, but seeding the first source failed — see `source.message`.",
+    };
+  } catch (err) {
+    if (isRecoverable(err)) throw err;
+    log.warning(`  ⚠️  create_notebook failed: ${err}`);
+    return {
+      success: false,
       message: err instanceof Error ? err.message : String(err),
     };
   }
@@ -193,17 +310,16 @@ async function openAddSourceOverlay(page: Page): Promise<void> {
 
   // Try the sidebar button first — fastest path on a populated notebook.
   try {
-    await page
-      .locator(joinAlt(Selectors.sources.addButton))
-      .first()
-      .click({ timeout: 5_000 });
+    await page.locator(joinAlt(Selectors.sources.addButton)).first().click({ timeout: 5_000 });
     await page
       .locator(Selectors.sources.overlayPane)
       .first()
       .waitFor({ state: "visible", timeout: 8_000 });
     return;
   } catch (err) {
-    log.warning(`  ⚠️  Add-source button click failed (${err}), trying ?addSource=true URL fallback`);
+    log.warning(
+      `  ⚠️  Add-source button click failed (${err}), trying ?addSource=true URL fallback`
+    );
   }
 
   // URL fallback — useful when the sidebar button is hidden or covered.

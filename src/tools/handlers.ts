@@ -13,7 +13,8 @@ import type {
   NotebookEntry,
   UpdateNotebookInput,
 } from "../library/types.js";
-import type { AddSourceResult } from "../notebooklm/sources.js";
+import type { AddSourceResult, CreateNotebookResult } from "../notebooklm/sources.js";
+import type { DeleteNotebookResult } from "../notebooklm/notebooks.js";
 import type { AudioGenerationResult, DownloadAudioResult } from "../notebooklm/audio.js";
 import { CONFIG, applyBrowserOptions, type BrowserOptions } from "../config.js";
 import { log } from "../utils/logger.js";
@@ -956,6 +957,129 @@ export class ToolHandlers {
   }
 
   /**
+   * Handle create_notebook tool — create a fresh notebook seeded with a first
+   * source, then auto-register it in the local library.
+   */
+  async handleCreateNotebook(args: {
+    source: { type: "url" | "text"; content: string; title?: string };
+    name: string;
+    description?: string;
+    topics?: string[];
+    use_cases?: string[];
+    set_active?: boolean;
+    show_browser?: boolean;
+  }): Promise<ToolResult<{ result: CreateNotebookResult; notebook?: NotebookEntry }>> {
+    log.info(`🔧 [TOOL] create_notebook called (name="${args.name}")`);
+    const originalConfig = { ...CONFIG };
+    if (args.show_browser !== undefined) {
+      const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
+      Object.assign(CONFIG, effectiveConfig);
+    }
+    const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
+    try {
+      // A home-mode session (URL without /notebook/) so init() waits for the
+      // "Create new" button instead of a per-notebook chat input.
+      const session = await this.sessionManager.getOrCreateSession(
+        undefined,
+        "https://notebooklm.google.com/",
+        overrideHeadless
+      );
+      const result = await session.createNotebook({ source: args.source });
+
+      if (!result.success || !result.notebookUrl) {
+        return { success: false, data: { result }, error: result.message };
+      }
+
+      // Register the new notebook in the local library so later tools can
+      // target it by notebook_id.
+      const notebook = this.library.addNotebook({
+        url: result.notebookUrl,
+        name: args.name,
+        description: args.description || `Notebook criado em ${args.name}`,
+        topics: args.topics && args.topics.length > 0 ? args.topics : [args.name],
+        use_cases: args.use_cases,
+      });
+
+      if (args.set_active !== false) {
+        this.library.selectNotebook(notebook.id);
+      }
+
+      log.success(`✅ [TOOL] create_notebook completed: ${notebook.id} (${result.notebookId})`);
+      return { success: true, data: { result, notebook } };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] create_notebook failed: ${msg}`);
+      return { success: false, error: msg };
+    } finally {
+      Object.assign(CONFIG, originalConfig);
+    }
+  }
+
+  /**
+   * Handle delete_notebook tool — permanently delete a notebook on the
+   * NotebookLM (Google) side, then drop it from the local library. Distinct
+   * from remove_notebook, which only unregisters it locally.
+   */
+  async handleDeleteNotebook(args: {
+    title?: string;
+    notebook_id?: string;
+    show_browser?: boolean;
+  }): Promise<ToolResult<{ result: DeleteNotebookResult; removed_from_library: boolean }>> {
+    log.info(
+      `🔧 [TOOL] delete_notebook called (title="${args.title ?? ""}" id="${args.notebook_id ?? ""}")`
+    );
+    const originalConfig = { ...CONFIG };
+    if (args.show_browser !== undefined) {
+      const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
+      Object.assign(CONFIG, effectiveConfig);
+    }
+    const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
+    try {
+      // Resolve the title to match on the home list, plus the library entry to
+      // clean up afterwards.
+      let title = args.title;
+      let libEntry = args.notebook_id ? this.library.getNotebook(args.notebook_id) : null;
+      if (!title && libEntry) title = libEntry.name;
+      if (!title) {
+        return {
+          success: false,
+          error:
+            "Provide `title` (the exact NotebookLM title) or a `notebook_id` " +
+            "whose library name matches the notebook's title.",
+        };
+      }
+      if (!libEntry) {
+        libEntry = this.library.listNotebooks().find((n) => n.name === title) ?? null;
+      }
+
+      const session = await this.sessionManager.getOrCreateSession(
+        undefined,
+        "https://notebooklm.google.com/",
+        overrideHeadless
+      );
+      const result = await session.deleteNotebook(title);
+
+      let removedFromLibrary = false;
+      if (result.success && libEntry) {
+        removedFromLibrary = this.library.removeNotebook(libEntry.id);
+        await this.sessionManager.closeSessionsForNotebook(libEntry.url).catch(() => 0);
+      }
+
+      return {
+        success: result.success,
+        data: { result, removed_from_library: removedFromLibrary },
+        ...(result.success ? {} : { error: result.message }),
+      };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] delete_notebook failed: ${msg}`);
+      return { success: false, error: msg };
+    } finally {
+      Object.assign(CONFIG, originalConfig);
+    }
+  }
+
+  /**
    * Handle add_source tool (issue #25).
    */
   async handleAddSource(args: {
@@ -1029,9 +1153,7 @@ export class ToolHandlers {
       // `started` and `in_progress` count as success — the generation is on
       // its way; the caller polls `get_audio_status` for completion.
       const ok =
-        result.status === "ready" ||
-        result.status === "started" ||
-        result.status === "in_progress";
+        result.status === "ready" || result.status === "started" || result.status === "in_progress";
       return { success: ok, data: { result } };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
