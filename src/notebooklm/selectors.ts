@@ -339,6 +339,30 @@ export const Selectors = {
     ],
   },
 
+  /**
+   * NotebookLM homepage (root URL) controls. The "+ Create new" button opens a
+   * fresh, empty notebook and redirects to /notebook/<uuid>. Class/icon anchors
+   * first, then visible-text (EN + major locales), same priority convention as
+   * sources.addButton.
+   */
+  homepage: {
+    createButton: [
+      "button.create-notebook-button",
+      'button[class*="create-notebook"]',
+      'button:has-text("Create new")',
+      'button:has-text("Create notebook")',
+      '[role="button"]:has-text("Create new")',
+      'button:has(mat-icon:text-is("add")):has-text("Create")',
+      'button:has-text("Neu erstellen")',
+      'button:has-text("Créer")',
+      'button:has-text("Crear")',
+      'button:has-text("Nuovo")',
+      'button:has-text("Criar")',
+      'button:has-text("Nieuw")',
+      'button:has-text("新規作成")',
+    ],
+  },
+
   notebooks: {
     projectCard: 'button[aria-labelledby*="project-"]',
     cardMenuButton: [

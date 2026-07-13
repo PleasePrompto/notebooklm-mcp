@@ -14,6 +14,7 @@ import type {
   UpdateNotebookInput,
 } from "../library/types.js";
 import type { AddSourceResult } from "../notebooklm/sources.js";
+import type { CreateNotebookResult } from "../notebooklm/create-notebook.js";
 import type { AudioGenerationResult, DownloadAudioResult } from "../notebooklm/audio.js";
 import { CONFIG, applyBrowserOptions, type BrowserOptions } from "../config.js";
 import { log } from "../utils/logger.js";
@@ -632,6 +633,70 @@ export class ToolHandlers {
         success: false,
         error: errorMessage,
       };
+    }
+  }
+
+  /**
+   * Handle create_notebook tool (issue #70) — clicks "+ Create new" on the
+   * NotebookLM homepage and returns the fresh /notebook/<uuid> URL. Bootstraps
+   * an authenticated page off an existing notebook because session init requires
+   * a real notebook URL (it cannot init straight onto the homepage).
+   */
+  async handleCreateNotebook(args: {
+    name?: string;
+    description?: string;
+    topics?: string[];
+    session_id?: string;
+    notebook_id?: string;
+    notebook_url?: string;
+    show_browser?: boolean;
+  }): Promise<ToolResult<{ result: CreateNotebookResult; notebook?: NotebookEntry }>> {
+    log.info(`🔧 [TOOL] create_notebook called`);
+    const originalConfig = { ...CONFIG };
+    if (args.show_browser !== undefined) {
+      Object.assign(CONFIG, applyBrowserOptions(undefined, args.show_browser));
+    }
+    const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
+    try {
+      // Bootstrap an authenticated page off an existing notebook (session init
+      // cannot start on the bare homepage).
+      const bootstrapUrl = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
+      if (!bootstrapUrl) {
+        throw new Error(
+          "create_notebook needs an existing notebook to bootstrap a browser session. " +
+            "Register one with add_notebook (or select_notebook) first, or pass notebook_id/notebook_url."
+        );
+      }
+      const session = await this.sessionManager.getOrCreateSession(
+        args.session_id,
+        bootstrapUrl,
+        overrideHeadless
+      );
+      const result = await session.createNotebook();
+      if (!result.success) {
+        return { success: false, error: result.message ?? "create_notebook failed", data: { result } };
+      }
+      // Optionally register the fresh notebook in the local library (archive).
+      let notebook: NotebookEntry | undefined;
+      if (args.name && result.url) {
+        try {
+          notebook = this.library.addNotebook({
+            url: result.url,
+            name: args.name,
+            description: args.description ?? args.name,
+            topics: args.topics ?? [],
+          });
+        } catch (e) {
+          log.warning(`  ⚠️  library.addNotebook skipped: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      return { success: true, data: { result, notebook } };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] create_notebook failed: ${msg}`);
+      return { success: false, error: msg };
+    } finally {
+      Object.assign(CONFIG, originalConfig);
     }
   }
 

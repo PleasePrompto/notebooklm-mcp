@@ -271,4 +271,66 @@ export const notebookManagementTools: Tool[] = [
       openWorldHint: false,
     },
   },
+  {
+    name: "create_notebook",
+    description:
+      "Create a brand-new, empty NotebookLM notebook by clicking \"+ Create new\" " +
+      "on the homepage, and return its fresh `/notebook/<uuid>` URL.\n\n" +
+      "Use this to get a clean notebook for a single batch of sources — the right " +
+      "pattern for recurring digests where each run needs its own notebook (reusing " +
+      "one notebook makes `generate_audio` return the previous, stale Audio Overview " +
+      "and blends every run's sources).\n\n" +
+      "Workflow: `create_notebook` → `add_source` (pass the returned `url` as " +
+      "`notebook_url`) → `generate_audio` → poll `get_audio_status`.\n\n" +
+      "Bootstraps a browser session from an existing notebook, so at least one " +
+      "notebook must already be registered (pass `notebook_id`/`notebook_url` to pin " +
+      "which one). Supply `name` (+ optional `description`/`topics`) to also register " +
+      "the new notebook in the local library as an archive entry.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description:
+            "Optional. If given, the new notebook is registered in the local library " +
+            "under this display name (e.g. 'FM Weekly Digest — 14 July 2026').",
+        },
+        description: {
+          type: "string",
+          description: "Optional 1–2 sentence summary for the library entry (defaults to `name`).",
+        },
+        topics: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional topics for the library entry.",
+        },
+        notebook_id: {
+          type: "string",
+          description:
+            "Existing library notebook id used only to bootstrap the browser session " +
+            "(not the notebook being created). Defaults to the active notebook.",
+        },
+        notebook_url: {
+          type: "string",
+          description:
+            "Existing NotebookLM URL used only to bootstrap the browser session. Overrides `notebook_id`.",
+        },
+        session_id: {
+          type: "string",
+          description: "Reuse an existing browser session by id (from `list_sessions`).",
+        },
+        show_browser: {
+          type: "boolean",
+          description: "Show the browser window for debugging. Default: false.",
+        },
+      },
+    },
+    annotations: {
+      title: "Create new notebook",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
 ];
