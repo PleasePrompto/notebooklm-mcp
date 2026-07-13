@@ -30,6 +30,10 @@ import {
   type AddSourceResult,
 } from "../notebooklm/sources.js";
 import {
+  createNotebook as createNotebookOnPage,
+  type CreateNotebookResult,
+} from "../notebooklm/create-notebook.js";
+import {
   generateAudioOverview as generateAudioOnPage,
   downloadAudioOverview as downloadAudioOnPage,
   getAudioStatusOnPage,
@@ -491,6 +495,19 @@ export class BrowserSession {
       await this.init();
     }
     return await addSourceToPage(this.page!, input);
+  }
+
+  /**
+   * Create a brand-new notebook via the homepage "+ Create new" button and
+   * return its fresh /notebook/<uuid> URL (issue #70). This session must have
+   * been bootstrapped on an existing notebook — createNotebook then drives the
+   * page to the homepage root itself.
+   */
+  async createNotebook(): Promise<CreateNotebookResult> {
+    if (!this.initialized || !this.page || this.isPageClosedSafe()) {
+      await this.init();
+    }
+    return await createNotebookOnPage(this.page!);
   }
 
   /**

@@ -343,6 +343,20 @@ class NotebookLMMCPServer {
             result = await this.toolHandlers.handleCleanupData(args as { confirm: boolean });
             break;
 
+          case "create_notebook":
+            result = await this.toolHandlers.handleCreateNotebook(
+              args as {
+                name?: string;
+                description?: string;
+                topics?: string[];
+                session_id?: string;
+                notebook_id?: string;
+                notebook_url?: string;
+                show_browser?: boolean;
+              }
+            );
+            break;
+
           case "add_source":
             result = await this.toolHandlers.handleAddSource(
               args as {
