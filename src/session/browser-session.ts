@@ -19,6 +19,7 @@ import type { AuthManager } from "../auth/auth-manager.js";
 import { humanType, randomDelay } from "../utils/stealth-utils.js";
 import { snapshotAllResponses } from "../utils/page-utils.js";
 import { waitForStableAnswer, snapshotPriorAnswers } from "../notebooklm/chat.js";
+import { Selectors } from "../notebooklm/selectors.js";
 import {
   extractCitations as extractCitationsFromPage,
   type SourceFormat,
@@ -554,18 +555,7 @@ export class BrowserSession {
       return null;
     }
 
-    const selectors = [
-      // Stable class — language-agnostic.
-      "textarea.query-box-input",
-      // Locale-bound aria-label fallbacks for older builds.
-      'textarea[aria-label="Feld für Anfragen"]',
-      'textarea[aria-label*="anfrag" i]',
-      'textarea[aria-label*="query" i]',
-      'textarea[aria-label*="zone de requete" i]',
-      'textarea[aria-label*="requete" i]',
-      'textarea[aria-label*="consulta" i]',
-      'textarea[aria-label*="domanda" i]',
-    ];
+    const selectors = Selectors.chat.queryInput;
 
     const tryFind = async (): Promise<string | null> => {
       for (const selector of selectors) {

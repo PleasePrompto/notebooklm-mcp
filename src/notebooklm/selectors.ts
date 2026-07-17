@@ -35,18 +35,26 @@ export const Selectors = {
     /**
      * Chat textarea. The class is shared across locales; aria-labels are a
      * fallback for older builds where the class was different.
+     *
+     * The source-discovery box (`textarea.query-box-textarea`, "Discover
+     * sources based on the inputted query" / "Search the web for new
+     * sources") is a distractor that matches the same aria-label substrings
+     * — every locale describes it in terms of a *query* too. Typing into it
+     * would silently send the user's question to web-source discovery instead
+     * of the chat, so each fallback MUST carry
+     * `:not(.query-box-textarea)`. Same rule as `submitButton` below.
      */
     queryInput: [
       "textarea.query-box-input",
-      'textarea[aria-label*="query" i]',
-      'textarea[aria-label*="anfrag" i]',
-      'textarea[aria-label*="requete" i]',
-      'textarea[aria-label*="zone de requete" i]',
-      'textarea[aria-label*="consulta" i]',
-      'textarea[aria-label*="domanda" i]',
-      'textarea[aria-label*="vraag" i]',
-      'textarea[aria-label*="質問" i]',
-      'textarea[aria-label*="pergunta" i]',
+      'textarea[aria-label*="query" i]:not(.query-box-textarea)',
+      'textarea[aria-label*="anfrag" i]:not(.query-box-textarea)',
+      'textarea[aria-label*="requete" i]:not(.query-box-textarea)',
+      'textarea[aria-label*="zone de requete" i]:not(.query-box-textarea)',
+      'textarea[aria-label*="consulta" i]:not(.query-box-textarea)',
+      'textarea[aria-label*="domanda" i]:not(.query-box-textarea)',
+      'textarea[aria-label*="vraag" i]:not(.query-box-textarea)',
+      'textarea[aria-label*="質問" i]:not(.query-box-textarea)',
+      'textarea[aria-label*="pergunta" i]:not(.query-box-textarea)',
     ],
     /**
      * The chat submit button has the *language-bound* aria-label
