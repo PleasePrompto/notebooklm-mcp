@@ -172,9 +172,54 @@ const RATE_LIMIT_MESSAGES = [
   "1日あたりの上限に達しました",
 ];
 
-function isPlaceholder(text: string): boolean {
+/**
+ * Gemini 2.5 renders an "extended thinking" summary into the SAME
+ * `.message-text-content` element before it is replaced by the final answer
+ * (issue #74). NotebookLM ships no dedicated CSS class for this block — verified
+ * against the live 2026-07 DOM, where the settled answer turn holds exactly one
+ * `.message-text-content` containing only the final response — so it must be
+ * detected by shape. The summary is emitted in English even when the answer is
+ * not, and follows a stable pattern:
+ *
+ *   <Gerund Title-Case header, no terminal punctuation>\n
+ *   <first-person, present-continuous planning prose>
+ *
+ * Verbatim examples:
+ *   "Clarifying Initial Requests\nI'm currently focused on structuring…"
+ *   "Refining the Focus\nI'm now zeroing in on the common thread…"
+ *   "Defining the Summary Scope\nMy next task is to…"
+ *
+ * Requiring BOTH the header shape AND first-person planning language keeps this
+ * from misfiring on grounded answers, which are third-person and source-cited.
+ */
+const THINKING_TITLE = /^[A-Z][a-z]+ing\b[^\n.!?。？！]{0,60}$/;
+const THINKING_FIRST_PERSON =
+  /\b(?:I['’]?m|I['’]?ll|I['’]?ve|I will|I am|I need to|I want to|My (?:immediate |current |next |primary |main )?(?:task|aim|goal|plan|approach|focus|objective|step)|Let me)\b/;
+const THINKING_OPENER =
+  /^(?:I['’]?m|I['’]?ll|I will|I am|My (?:next|immediate|current|primary|main)\s+(?:task|aim|goal|plan|step|focus))\b/i;
+
+export function isThinkingStep(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const firstLine = trimmed.split("\n", 1)[0].trim();
+
+  // Shape 1: a short gerund header followed by first-person planning prose.
+  const gerundHeader = THINKING_TITLE.test(firstLine) && firstLine.split(/\s+/).length <= 7;
+  if (gerundHeader && THINKING_FIRST_PERSON.test(trimmed)) return true;
+
+  // Shape 2: a title-less summary that opens directly with planning language.
+  if (THINKING_OPENER.test(firstLine)) return true;
+
+  return false;
+}
+
+export function isPlaceholder(text: string): boolean {
   const lower = text.toLowerCase();
   if (PLACEHOLDER_SNIPPETS.some((s) => lower.includes(s))) return true;
+  // Gemini 2.5's extended-thinking summary is "stable" while the model is still
+  // working; treat it as a placeholder so the poller keeps waiting for the
+  // final answer that replaces it (issue #74).
+  if (isThinkingStep(text)) return true;
   // Short text ending with "..." is almost certainly a loading indicator;
   // real responses run well past 50 chars.
   if (text.length < 50 && text.trim().endsWith("...")) return true;
