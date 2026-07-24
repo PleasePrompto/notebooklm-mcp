@@ -86,9 +86,7 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
       const currentUrl = page.url();
       const currentUuid = currentUrl.match(/notebook\/([a-f0-9-]+)/)?.[1];
       if (currentUuid && currentUuid !== expectedUuid) {
-        log.error(
-          `  ❌ Notebook redirect: expected ${expectedUuid}, got ${currentUuid}`
-        );
+        log.error(`  ❌ Notebook redirect: expected ${expectedUuid}, got ${currentUuid}`);
         return {
           success: false,
           type: input.type,
@@ -193,17 +191,16 @@ async function openAddSourceOverlay(page: Page): Promise<void> {
 
   // Try the sidebar button first — fastest path on a populated notebook.
   try {
-    await page
-      .locator(joinAlt(Selectors.sources.addButton))
-      .first()
-      .click({ timeout: 5_000 });
+    await page.locator(joinAlt(Selectors.sources.addButton)).first().click({ timeout: 5_000 });
     await page
       .locator(Selectors.sources.overlayPane)
       .first()
       .waitFor({ state: "visible", timeout: 8_000 });
     return;
   } catch (err) {
-    log.warning(`  ⚠️  Add-source button click failed (${err}), trying ?addSource=true URL fallback`);
+    log.warning(
+      `  ⚠️  Add-source button click failed (${err}), trying ?addSource=true URL fallback`
+    );
   }
 
   // URL fallback — useful when the sidebar button is hidden or covered.

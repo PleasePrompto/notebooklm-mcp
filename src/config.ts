@@ -12,6 +12,7 @@
 import envPaths from "env-paths";
 import fs from "fs";
 import path from "path";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 // Cross-platform data paths (unified without -nodejs suffix)
 // Linux: ~/.local/share/notebooklm-mcp/
@@ -25,7 +26,7 @@ const paths = envPaths("notebooklm-mcp", { suffix: "" });
  * This is the base Google login URL that redirects to NotebookLM
  */
 export const NOTEBOOKLM_AUTH_URL =
-  "https://accounts.google.com/v3/signin/identifier?continue=https%3A%2F%2Fnotebooklm.google.com%2F&flowName=GlifWebSignIn&flowEntry=ServiceLogin";
+  "https://accounts.google.com/v3/signin/identifier?continue=https%3A%2F%2Fnotebook.google.com%2F&flowName=GlifWebSignIn&flowEntry=ServiceLogin";
 
 export interface Config {
   // NotebookLM - optional, used for legacy default notebook
@@ -267,6 +268,23 @@ function buildConfig(): Config {
 export const CONFIG: Config = buildConfig();
 
 /**
+ * Request-scoped configuration.
+ *
+ * Browser tool calls may run concurrently when the HTTP transport is used.
+ * Keeping overrides in AsyncLocalStorage prevents one request from mutating
+ * the process-wide CONFIG object while another request is still running.
+ */
+const runtimeConfigStorage = new AsyncLocalStorage<Config>();
+
+export function getRuntimeConfig(): Config {
+  return runtimeConfigStorage.getStore() ?? CONFIG;
+}
+
+export function withRuntimeConfig<T>(config: Config, operation: () => Promise<T>): Promise<T> {
+  return runtimeConfigStorage.run(config, operation);
+}
+
+/**
  * Ensure all required directories exist
  * NOTE: We do NOT create configDir - it's not needed!
  */
@@ -292,6 +310,7 @@ export interface BrowserOptions {
   show?: boolean;
   headless?: boolean;
   timeout_ms?: number;
+  answer_timeout_ms?: number;
   stealth?: {
     enabled?: boolean;
     random_delays?: boolean;
@@ -330,6 +349,9 @@ export function applyBrowserOptions(options?: BrowserOptions, legacyShowBrowser?
     if (options.timeout_ms !== undefined) {
       config.browserTimeout = options.timeout_ms;
     }
+    if (options.answer_timeout_ms !== undefined) {
+      config.answerTimeoutMs = options.answer_timeout_ms;
+    }
     if (options.stealth) {
       const s = options.stealth;
       if (s.enabled !== undefined) config.stealthEnabled = s.enabled;
@@ -351,6 +373,3 @@ export function applyBrowserOptions(options?: BrowserOptions, legacyShowBrowser?
 
   return config;
 }
-
-// Create directories on import
-ensureDirectories();

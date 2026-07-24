@@ -35,7 +35,8 @@ export const systemTools: Tool[] = [
     description:
       "Open a browser window for first-time Google login. Returns immediately " +
       "after spawning the browser; the user has up to 10 minutes to complete " +
-      "sign-in, then cookies are persisted for future runs.\n\n" +
+      "sign-in, then cookies are persisted for future runs. Existing profile " +
+      "data is preserved; use `re_auth` when a clean login is required.\n\n" +
       "When to use:\n" +
       "  • `get_health` reports `authenticated=false` for the first time\n" +
       "  • Auto-login credentials are not configured\n" +

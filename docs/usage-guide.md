@@ -39,13 +39,13 @@ Expect `"authenticated": true`.
 
 ### 3. Add a notebook to the local library
 
-Get a NotebookLM share-URL: open the notebook in `notebooklm.google.com`, click _Share → Anyone with the link → Copy link_. Then:
+Get a NotebookLM share-URL: open the notebook in `notebook.google.com`, click _Share → Anyone with the link → Copy link_. Legacy `notebooklm.google.com` links are also accepted. Then:
 
 ```json
 {
   "name": "add_notebook",
   "arguments": {
-    "url": "https://notebooklm.google.com/notebook/abcd-efgh",
+    "url": "https://notebook.google.com/notebook/abcd-efgh",
     "name": "n8n Documentation",
     "description": "n8n core docs + builtin nodes",
     "topics": ["workflow automation", "n8n", "node configuration"],

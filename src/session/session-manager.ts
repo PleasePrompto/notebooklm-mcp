@@ -19,6 +19,7 @@ import { CONFIG } from "../config.js";
 import { log } from "../utils/logger.js";
 import type { SessionInfo } from "../types.js";
 import { randomBytes } from "crypto";
+import { normalizeNotebookUrl } from "../notebooklm/url.js";
 
 export class SessionManager {
   private authManager: AuthManager;
@@ -27,6 +28,7 @@ export class SessionManager {
   private maxSessions: number;
   private sessionTimeout: number;
   private cleanupInterval?: NodeJS.Timeout;
+  private sessionMutationTail: Promise<void> = Promise.resolve();
 
   constructor(authManager: AuthManager) {
     this.authManager = authManager;
@@ -68,14 +70,30 @@ export class SessionManager {
     notebookUrl?: string,
     overrideHeadless?: boolean
   ): Promise<BrowserSession> {
+    let release!: () => void;
+    const previous = this.sessionMutationTail;
+    this.sessionMutationTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await this.getOrCreateSessionUnlocked(sessionId, notebookUrl, overrideHeadless);
+    } finally {
+      release();
+    }
+  }
+
+  private async getOrCreateSessionUnlocked(
+    sessionId?: string,
+    notebookUrl?: string,
+    overrideHeadless?: boolean
+  ): Promise<BrowserSession> {
     // Determine target notebook URL
-    const targetUrl = (notebookUrl || CONFIG.notebookUrl || "").trim();
-    if (!targetUrl) {
+    const requestedUrl = (notebookUrl || CONFIG.notebookUrl || "").trim();
+    if (!requestedUrl) {
       throw new Error("Notebook URL is required to create a session");
     }
-    if (!targetUrl.startsWith("http")) {
-      throw new Error("Notebook URL must be an absolute URL");
-    }
+    const targetUrl = normalizeNotebookUrl(requestedUrl);
 
     // Generate ID if not provided
     if (!sessionId) {
@@ -86,17 +104,20 @@ export class SessionManager {
     // Check if browser visibility mode needs to change
     if (overrideHeadless !== undefined) {
       if (this.sharedContextManager.needsHeadlessModeChange(overrideHeadless)) {
-        log.warning(
-          `🔄 Browser visibility changed - closing all sessions to recreate browser context...`
-        );
+        if (this.sessions.size > 0) {
+          throw new Error(
+            "Browser visibility cannot change while sessions are active. " +
+              "Close active sessions first or start the server with the desired HEADLESS setting."
+          );
+        }
+        log.warning(`🔄 Browser visibility changed - recreating idle browser context...`);
         const currentMode = this.sharedContextManager.getCurrentHeadlessMode();
         log.info(
           `  Switching from ${currentMode ? "HEADLESS" : "VISIBLE"} to ${overrideHeadless ? "VISIBLE" : "HEADLESS"}`
         );
 
-        // Close all sessions (they all use the same context)
         await this.closeAllSessions();
-        log.success(`  ✅ All sessions closed, browser context will be recreated with new mode`);
+        log.success(`  ✅ Browser context will be recreated with new mode`);
       }
     }
 
@@ -284,14 +305,10 @@ export class SessionManager {
   }
 
   /**
-   * Close all sessions (used during shutdown)
+   * Close all sessions without disabling periodic cleanup. Used by runtime
+   * operations such as re-authentication and browser-mode changes.
    */
   async closeAllSessions(): Promise<void> {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = undefined;
-    }
-
     if (this.sessions.size === 0) {
       log.warning("🛑 Closing shared context (no active sessions)...");
       await this.sharedContextManager.closeContext();
@@ -315,6 +332,14 @@ export class SessionManager {
     await this.sharedContextManager.closeContext();
 
     log.success("✅ All sessions closed");
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
+    await this.closeAllSessions();
   }
 
   /**

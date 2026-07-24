@@ -17,6 +17,29 @@ import type {
   UpdateNotebookInput,
   LibraryStats,
 } from "./types.js";
+import { normalizeNotebookUrl } from "../notebooklm/url.js";
+import { z } from "zod";
+
+const notebookEntrySchema = z.object({
+  id: z.string().min(1),
+  url: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().default(""),
+  topics: z.array(z.string()).default([]),
+  content_types: z.array(z.string()).default([]),
+  use_cases: z.array(z.string()).default([]),
+  added_at: z.string(),
+  last_used: z.string(),
+  use_count: z.number().int().nonnegative().default(0),
+  tags: z.array(z.string()).optional(),
+});
+
+const librarySchema = z.object({
+  notebooks: z.array(notebookEntrySchema),
+  active_notebook_id: z.string().nullable(),
+  last_modified: z.string(),
+  version: z.string(),
+});
 
 export class NotebookLibrary {
   private libraryPath: string;
@@ -41,12 +64,17 @@ export class NotebookLibrary {
     try {
       if (fs.existsSync(this.libraryPath)) {
         const data = fs.readFileSync(this.libraryPath, "utf-8");
-        const library = JSON.parse(data) as Library;
+        const library = librarySchema.parse(JSON.parse(data)) as Library;
         log.success(`  ✅ Loaded library with ${library.notebooks.length} notebooks`);
         return library;
       }
     } catch (error) {
       log.warning(`  ⚠️  Failed to load library: ${error}`);
+      if (fs.existsSync(this.libraryPath)) {
+        const backupPath = `${this.libraryPath}.corrupt-${Date.now()}`;
+        fs.copyFileSync(this.libraryPath, backupPath);
+        log.warning(`  🛟 Preserved unreadable library at: ${backupPath}`);
+      }
     }
 
     // Create default library with current CONFIG as first entry
@@ -100,13 +128,18 @@ export class NotebookLibrary {
    * Save library to disk
    */
   private saveLibrary(library: Library): void {
+    const temporaryPath = `${this.libraryPath}.${process.pid}.tmp`;
     try {
       library.last_modified = new Date().toISOString();
       const data = JSON.stringify(library, null, 2);
-      fs.writeFileSync(this.libraryPath, data, "utf-8");
+      fs.writeFileSync(temporaryPath, data, { encoding: "utf-8", mode: 0o600 });
+      fs.renameSync(temporaryPath, this.libraryPath);
       this.library = library;
       log.success(`  💾 Library saved (${library.notebooks.length} notebooks)`);
     } catch (error) {
+      if (fs.existsSync(temporaryPath)) {
+        fs.unlinkSync(temporaryPath);
+      }
       log.error(`  ❌ Failed to save library: ${error}`);
       throw error;
     }
@@ -138,6 +171,7 @@ export class NotebookLibrary {
    */
   addNotebook(input: AddNotebookInput): NotebookEntry {
     log.info(`📝 Adding notebook: ${input.name}`);
+    const normalizedUrl = normalizeNotebookUrl(input.url);
 
     // Generate ID
     const id = this.generateId(input.name);
@@ -145,7 +179,7 @@ export class NotebookLibrary {
     // Create entry
     const notebook: NotebookEntry = {
       id,
-      url: input.url,
+      url: normalizedUrl,
       name: input.name,
       description: input.description,
       topics: input.topics,
@@ -161,7 +195,7 @@ export class NotebookLibrary {
     };
 
     // Add to library
-    const updated = { ...this.library };
+    const updated = { ...this.library, notebooks: [...this.library.notebooks] };
     updated.notebooks.push(notebook);
 
     // Set as active if it's the first notebook
@@ -210,7 +244,7 @@ export class NotebookLibrary {
 
     log.info(`🎯 Selecting notebook: ${id}`);
 
-    const updated = { ...this.library };
+    const updated = { ...this.library, notebooks: [...this.library.notebooks] };
     updated.active_notebook_id = id;
 
     // Update last_used
@@ -237,7 +271,7 @@ export class NotebookLibrary {
 
     log.info(`📝 Updating notebook: ${input.id}`);
 
-    const updated = { ...this.library };
+    const updated = { ...this.library, notebooks: [...this.library.notebooks] };
     const index = updated.notebooks.findIndex((n) => n.id === input.id);
 
     updated.notebooks[index] = {
@@ -248,7 +282,7 @@ export class NotebookLibrary {
       ...(input.content_types && { content_types: input.content_types }),
       ...(input.use_cases && { use_cases: input.use_cases }),
       ...(input.tags && { tags: input.tags }),
-      ...(input.url && { url: input.url }),
+      ...(input.url && { url: normalizeNotebookUrl(input.url) }),
     };
 
     this.saveLibrary(updated);
@@ -268,7 +302,7 @@ export class NotebookLibrary {
 
     log.info(`🗑️  Removing notebook: ${id}`);
 
-    const updated = { ...this.library };
+    const updated = { ...this.library, notebooks: [...this.library.notebooks] };
     updated.notebooks = updated.notebooks.filter((n) => n.id !== id);
 
     // If we removed the active notebook, select another one
@@ -292,7 +326,7 @@ export class NotebookLibrary {
     }
 
     const notebook = this.library.notebooks[notebookIndex];
-    const updated = { ...this.library };
+    const updated = { ...this.library, notebooks: [...this.library.notebooks] };
     const updatedNotebook: NotebookEntry = {
       ...notebook,
       use_count: notebook.use_count + 1,

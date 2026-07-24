@@ -25,7 +25,7 @@ MCP server for Google NotebookLM. It drives a real Chrome via Patchright (stealt
 
 ## Requirements & Platform Support
 
-- **Node.js** ≥ 18.
+- **Node.js** ≥ 22.13.
 - **Chrome** (stable channel) preferred. The bundled Patchright Chromium is used as a fallback when Chrome refuses to launch — set `BROWSER_CHANNEL=chromium` to force it.
 - **Linux / macOS / Windows.**
 - **WSL2 + WSLg** (Windows 11+) is fully supported. WSL1 cannot launch a Chromium and is not supported — upgrade to WSL2.
@@ -129,7 +129,7 @@ Profile location (env-paths):
 
 Auth tools:
 
-- `setup_auth` — first-time login. Pass `show_browser=true` (default for setup) to see the window. Returns immediately after launching the window; you have up to 10 min to complete the login.
+- `setup_auth` — first-time login. Pass `show_browser=true` (default for setup) to see the window. The call waits for login completion for up to 10 minutes and reports progress.
 - `re_auth` — wipe stored auth and start over. Use when switching Google accounts or when authentication is broken.
 - `cleanup_data` — full cleanup with categorised preview. Pass `preserve_library=true` to keep `library.json` while wiping browser state.
 
@@ -151,8 +151,8 @@ npx notebooklm-mcp@latest
 
 ```bash
 npx notebooklm-mcp@latest --transport http --port 3000
-# bind to all interfaces:
-npx notebooklm-mcp@latest --transport http --port 3000 --host 0.0.0.0
+# Binding outside localhost requires a bearer token:
+NOTEBOOKLM_HTTP_AUTH_TOKEN="replace-with-a-long-random-token" npx notebooklm-mcp@latest --transport http --port 3000 --host 0.0.0.0
 ```
 
 Equivalent env vars: `NOTEBOOKLM_TRANSPORT=http`, `NOTEBOOKLM_PORT=3000`, `NOTEBOOKLM_HOST=0.0.0.0`.
@@ -168,7 +168,11 @@ Routes:
 
 The server uses the MCP SDK's `StreamableHTTPServerTransport`, which manages session lifecycle through the `Mcp-Session-Id` response/request header. A new session is created when the first `POST /mcp` body is an `initialize` request; from then on the client must echo the returned `Mcp-Session-Id` on every request.
 
-Default host is `127.0.0.1`. Bind to `0.0.0.0` only when the server is reachable on a trusted network.
+Default host is `127.0.0.1`. Binding to a non-loopback address is rejected
+unless `NOTEBOOKLM_HTTP_AUTH_TOKEN` is set. Clients then send
+`Authorization: Bearer <token>`. Use `NOTEBOOKLM_ALLOWED_HOSTS` and
+`NOTEBOOKLM_ALLOWED_ORIGINS` to allow the public names that proxy/browser
+clients use; both variables accept comma-separated values.
 
 ---
 
@@ -353,6 +357,10 @@ All configuration is via environment variables and tool parameters. There is no 
 | `NOTEBOOKLM_TRANSPORT` | `stdio` | `stdio` or `http`. |
 | `NOTEBOOKLM_PORT` | `3000` | HTTP port. |
 | `NOTEBOOKLM_HOST` | `127.0.0.1` | HTTP bind address. |
+| `NOTEBOOKLM_HTTP_AUTH_TOKEN` | _(unset)_ | Bearer token for HTTP. Required outside localhost. |
+| `NOTEBOOKLM_ALLOWED_HOSTS` | loopback hosts | Comma-separated HTTP Host allowlist. |
+| `NOTEBOOKLM_ALLOWED_ORIGINS` | loopback origins | Comma-separated browser Origin allowlist. |
+| `NOTEBOOKLM_HTTP_MAX_BODY_BYTES` | `1048576` | Maximum HTTP request body size. |
 | `NOTEBOOKLM_ACCOUNT` | _(unset)_ | Multi-account profile slug. |
 | `NOTEBOOKLM_PROFILE` | `full` | Tool profile (`minimal` / `standard` / `full`). |
 | `NOTEBOOKLM_DISABLED_TOOLS` | _(unset)_ | Comma-separated tool names to suppress. |
@@ -366,11 +374,21 @@ All configuration is via environment variables and tool parameters. There is no 
 ## Development
 
 ```bash
-npm run build      # tsc + chmod +x dist/index.js
+npm run build      # compile TypeScript
 npm run dev        # tsx watch src/index.ts
 npm run lint       # eslint src
-npm run format     # prettier --write src
-npm run check      # format:check + lint + build
+npm run format     # format source, tests, and local scripts
+npm test           # unit and transport tests
+npm run check      # format:check + lint + build + tests
+```
+
+For a local HTTP smoke test, start the server and use the bundled client:
+
+```bash
+node ./dist/index.js --transport http --host 127.0.0.1 --port 3000
+npm run mcp:smoke
+npm run mcp:auth
+npm run mcp:ask -- "Summarize the active notebook"
 ```
 
 The build is type-safe with no `any` casts; DOM types are enabled for in-page evaluations.

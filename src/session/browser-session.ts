@@ -16,7 +16,7 @@
 import type { BrowserContext, Page } from "patchright";
 import type { SharedContextManager } from "./shared-context-manager.js";
 import type { AuthManager } from "../auth/auth-manager.js";
-import { humanType, randomDelay } from "../utils/stealth-utils.js";
+import { humanType, randomDelay, randomInt } from "../utils/stealth-utils.js";
 import { snapshotAllResponses } from "../utils/page-utils.js";
 import { waitForStableAnswer, snapshotPriorAnswers } from "../notebooklm/chat.js";
 import {
@@ -37,7 +37,7 @@ import {
   type AudioGenerationResult,
   type DownloadAudioResult,
 } from "../notebooklm/audio.js";
-import { CONFIG } from "../config.js";
+import { getRuntimeConfig } from "../config.js";
 import { log } from "../utils/logger.js";
 import type { SessionInfo, ProgressCallback } from "../types.js";
 import { RateLimitError } from "../errors.js";
@@ -54,6 +54,7 @@ export class BrowserSession {
   private authManager: AuthManager;
   private page: Page | null = null;
   private initialized: boolean = false;
+  private operationTail: Promise<void> = Promise.resolve();
 
   constructor(
     sessionId: string,
@@ -76,6 +77,7 @@ export class BrowserSession {
    * Initialize the session by creating a page and navigating to the notebook
    */
   async init(): Promise<void> {
+    const config = getRuntimeConfig();
     if (this.initialized) {
       log.warning(`⚠️  Session ${this.sessionId} already initialized`);
       return;
@@ -108,7 +110,7 @@ export class BrowserSession {
       log.info(`  🌐 Navigating to: ${this.notebookUrl}`);
       await this.page.goto(this.notebookUrl, {
         waitUntil: "domcontentloaded",
-        timeout: CONFIG.browserTimeout,
+        timeout: config.browserTimeout,
       });
 
       // Wait for page to stabilize
@@ -218,6 +220,7 @@ export class BrowserSession {
    * Ensure the session is authenticated, perform auto-login if needed
    */
   private async ensureAuthenticated(): Promise<boolean> {
+    const config = getRuntimeConfig();
     if (!this.page) {
       throw new Error("Page not initialized");
     }
@@ -258,13 +261,13 @@ export class BrowserSession {
     // Need fresh login
     log.warning(`  🔑 Fresh login required`);
 
-    if (CONFIG.autoLoginEnabled) {
+    if (config.autoLoginEnabled) {
       log.info(`  🤖 Attempting auto-login...`);
       const loginSuccess = await this.authManager.loginWithCredentials(
         this.context,
         this.page,
-        CONFIG.loginEmail,
-        CONFIG.loginPassword
+        config.loginEmail,
+        config.loginPassword
       );
 
       if (loginSuccess) {
@@ -360,7 +363,35 @@ export class BrowserSession {
   /**
    * Ask a question to NotebookLM
    */
+  private runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.operationTail.then(async () => {
+      this.updateActivity();
+      return await operation();
+    });
+    this.operationTail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
+  }
+
   async ask(question: string, sendProgress?: ProgressCallback): Promise<string> {
+    return await this.runExclusive(() => this.askUnlocked(question, sendProgress));
+  }
+
+  async askAndExtractCitations(
+    question: string,
+    format: SourceFormat,
+    sendProgress?: ProgressCallback
+  ): Promise<ExtractCitationsResult> {
+    return await this.runExclusive(async () => {
+      const answer = await this.askUnlocked(question, sendProgress);
+      return await this.extractCitationsUnlocked(answer, format);
+    });
+  }
+
+  private async askUnlocked(question: string, sendProgress?: ProgressCallback): Promise<string> {
+    const config = getRuntimeConfig();
     const askOnce = async (): Promise<string> => {
       if (!this.initialized || !this.page || this.isPageClosedSafe()) {
         log.warning(`  ℹ️  Session not initialized or page missing → re-initializing...`);
@@ -404,7 +435,7 @@ export class BrowserSession {
       await sendProgress?.("Typing question with human-like behavior...", 2, 5);
       await humanType(page, inputSelector, question, {
         withTypos: true,
-        wpm: Math.max(CONFIG.typingWpmMin, CONFIG.typingWpmMax),
+        wpm: randomInt(config.typingWpmMin, config.typingWpmMax),
       });
 
       // Small pause before submitting
@@ -419,13 +450,13 @@ export class BrowserSession {
       await randomDelay(1000, 1500);
 
       // Wait for the response with streaming-stability detection (issue #43).
-      // Timeout comes from CONFIG.answerTimeoutMs so users can tune it via
-      // ANSWER_TIMEOUT_MS or browser_options.timeout_ms (issue #14, #27).
+      // Timeout comes from the request-scoped configuration so concurrent
+      // HTTP calls cannot overwrite one another's limits.
       log.info(`  ⏳ Waiting for response (streaming-stability)...`);
       await sendProgress?.("Waiting for NotebookLM response (streaming-stability)...", 3, 5);
       const answer = await waitForStableAnswer(page, {
         question,
-        timeoutMs: CONFIG.answerTimeoutMs,
+        timeoutMs: config.answerTimeoutMs,
         pollIntervalMs: 750,
         ignoreTexts: existingResponses,
       });
@@ -487,6 +518,10 @@ export class BrowserSession {
    * without first running `ask()`.
    */
   async addSource(input: AddSourceInput): Promise<AddSourceResult> {
+    return await this.runExclusive(() => this.addSourceUnlocked(input));
+  }
+
+  private async addSourceUnlocked(input: AddSourceInput): Promise<AddSourceResult> {
     if (!this.initialized || !this.page || this.isPageClosedSafe()) {
       await this.init();
     }
@@ -497,6 +532,12 @@ export class BrowserSession {
    * Generate an Audio Overview for the active notebook (issue #11).
    */
   async generateAudio(options: GenerateAudioOptions = {}): Promise<AudioGenerationResult> {
+    return await this.runExclusive(() => this.generateAudioUnlocked(options));
+  }
+
+  private async generateAudioUnlocked(
+    options: GenerateAudioOptions = {}
+  ): Promise<AudioGenerationResult> {
     if (!this.initialized || !this.page || this.isPageClosedSafe()) {
       await this.init();
     }
@@ -507,6 +548,10 @@ export class BrowserSession {
    * Non-blocking probe for the current Audio Overview state (issue #11).
    */
   async getAudioStatus(): Promise<AudioGenerationResult> {
+    return await this.runExclusive(() => this.getAudioStatusUnlocked());
+  }
+
+  private async getAudioStatusUnlocked(): Promise<AudioGenerationResult> {
     if (!this.initialized || !this.page || this.isPageClosedSafe()) {
       await this.init();
     }
@@ -517,6 +562,10 @@ export class BrowserSession {
    * Download the most recent Audio Overview (issue #11).
    */
   async downloadAudio(destinationDir: string): Promise<DownloadAudioResult> {
+    return await this.runExclusive(() => this.downloadAudioUnlocked(destinationDir));
+  }
+
+  private async downloadAudioUnlocked(destinationDir: string): Promise<DownloadAudioResult> {
     if (!this.initialized || !this.page || this.isPageClosedSafe()) {
       await this.init();
     }
@@ -529,6 +578,13 @@ export class BrowserSession {
    * follow-up question disturbs the source panel.
    */
   async extractCitations(answer: string, format: SourceFormat): Promise<ExtractCitationsResult> {
+    return await this.runExclusive(() => this.extractCitationsUnlocked(answer, format));
+  }
+
+  private async extractCitationsUnlocked(
+    answer: string,
+    format: SourceFormat
+  ): Promise<ExtractCitationsResult> {
     if (format === "none" || !this.page || this.isPageClosedSafe()) {
       return { citations: [], formattedAnswer: answer };
     }
@@ -739,6 +795,10 @@ export class BrowserSession {
    * Reset the chat history (start a new conversation)
    */
   async reset(): Promise<void> {
+    return await this.runExclusive(() => this.resetUnlocked());
+  }
+
+  private async resetUnlocked(): Promise<void> {
     const resetOnce = async (): Promise<void> => {
       if (!this.initialized || !this.page || this.isPageClosedSafe()) {
         await this.init();
@@ -786,6 +846,10 @@ export class BrowserSession {
    * Close the session
    */
   async close(): Promise<void> {
+    return await this.runExclusive(() => this.closeUnlocked());
+  }
+
+  private async closeUnlocked(): Promise<void> {
     log.info(`🛑 Closing session ${this.sessionId}...`);
 
     if (this.page) {

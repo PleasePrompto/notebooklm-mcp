@@ -144,7 +144,8 @@ export const askQuestionTool: Tool = {
         description:
           "Direct NotebookLM URL — overrides `notebook_id`. Use for ad-hoc " +
           "queries against notebooks not yet in your library. Format: " +
-          "`https://notebooklm.google.com/notebook/<uuid>`.",
+          "`https://notebook.google.com/notebook/<uuid>` (the legacy " +
+          "`notebooklm.google.com` host is also accepted).",
       },
       source_format: {
         type: "string",
@@ -152,8 +153,8 @@ export const askQuestionTool: Tool = {
         description:
           "How citations are returned alongside the answer:\n" +
           "  • `none` (default) — raw answer, no citation extraction (fastest)\n" +
-          "  • `footnotes` — answer plus a `Sources:` block, e.g. `[1] DocName — \"excerpt…\"`\n" +
-          "  • `inline` — `[N]` markers in the answer are replaced with `[N] (DocName: \"excerpt…\")`\n" +
+          '  • `footnotes` — answer plus a `Sources:` block, e.g. `[1] DocName — "excerpt…"`\n' +
+          '  • `inline` — `[N]` markers in the answer are replaced with `[N] (DocName: "excerpt…")`\n' +
           "  • `json` — answer text untouched; structured `sources` array on the response\n\n" +
           "Use `none` for snappy chat. Use `json` when downstream code needs to " +
           "process citations programmatically. Use `footnotes`/`inline` when " +
@@ -182,6 +183,10 @@ export const askQuestionTool: Tool = {
           timeout_ms: {
             type: "number",
             description: "Browser operation timeout in milliseconds (default: 30000)",
+          },
+          answer_timeout_ms: {
+            type: "number",
+            description: "Maximum wait for a NotebookLM answer in milliseconds (default: 600000)",
           },
           stealth: {
             type: "object",
