@@ -102,7 +102,9 @@ async function inspectChat() {
     const chatMessages = Array.from(document.querySelectorAll("chat-message"));
     const textareas = Array.from(document.querySelectorAll("textarea"));
     const submitButtons = Array.from(
-      document.querySelectorAll("button.submit-button, button[class*='submit'], button[class*='stop']")
+      document.querySelectorAll(
+        "button.submit-button, button[class*='submit'], button[class*='stop']"
+      )
     ).map((element) => ({
       ...describe(element),
       disabled: element.disabled,
@@ -228,9 +230,7 @@ try {
   });
 
   const before = await settleChatHistory();
-  const latestAnswerLocator = page.locator(
-    ".to-user-container:last-of-type .message-text-content"
-  );
+  const latestAnswerLocator = page.locator(".to-user-container:last-of-type .message-text-content");
   console.log(
     JSON.stringify(
       {

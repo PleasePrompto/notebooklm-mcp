@@ -18,6 +18,10 @@ The server uses `env-paths` with no suffix. Default locations:
 | macOS | `~/Library/Application Support/notebooklm-mcp/` | `~/Library/Preferences/notebooklm-mcp/` |
 | Windows | `%APPDATA%\notebooklm-mcp\` | `%APPDATA%\notebooklm-mcp\Config\` |
 
+Set `NOTEBOOKLM_DATA_DIR` to use an explicit data root instead of the
+platform default. `browser_state/`, `chrome_profile/`, profile instances, and
+`library.json` are all resolved below that directory.
+
 Subdirectories under `dataDir`:
 
 - `chrome_profile/` — persistent Chrome profile (cookies, fingerprint).

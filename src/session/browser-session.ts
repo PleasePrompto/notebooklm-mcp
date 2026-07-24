@@ -17,8 +17,8 @@ import type { BrowserContext, Page } from "patchright";
 import type { SharedContextManager } from "./shared-context-manager.js";
 import type { AuthManager } from "../auth/auth-manager.js";
 import { humanType, randomDelay, randomInt } from "../utils/stealth-utils.js";
-import { snapshotAllResponses } from "../utils/page-utils.js";
 import { waitForStableAnswer, snapshotPriorAnswers } from "../notebooklm/chat.js";
+import { Selectors, joinAlt } from "../notebooklm/selectors.js";
 import {
   extractCitations as extractCitationsFromPage,
   type SourceFormat,
@@ -412,14 +412,11 @@ export class BrowserSession {
         }
       }
 
-      // Snapshot existing responses BEFORE asking — uses the v2 chat module
-      // (issue #43). Falls back to the legacy snapshot only if the v2 helper
-      // produced nothing, so we don't regress when the new selectors miss.
+      // Hydrate and snapshot existing responses BEFORE asking. The current
+      // NotebookLM UI virtualises history, so the textarea can be visible
+      // before prior chat cards have mounted.
       log.info(`  📸 Snapshotting existing responses...`);
-      let existingResponses = await snapshotPriorAnswers(page);
-      if (existingResponses.length === 0) {
-        existingResponses = await snapshotAllResponses(page);
-      }
+      const existingResponses = await snapshotPriorAnswers(page);
       log.success(`  ✅ Captured ${existingResponses.length} existing responses`);
 
       // Find the chat input
@@ -441,19 +438,40 @@ export class BrowserSession {
       // Small pause before submitting
       await randomDelay(500, 1000);
 
-      // Submit the question (Enter key)
+      // Submit from the input itself so another focused control cannot consume
+      // Enter. If the UI does not clear the input, fall back to the dedicated
+      // submit button and fail explicitly if neither path submits the turn.
       log.info(`  📤 Submitting question...`);
       await sendProgress?.("Submitting question...", 3, 5);
-      await page.keyboard.press("Enter");
+      const input = page.locator(inputSelector).first();
+      await input.press("Enter");
 
-      // Small pause after submit
-      await randomDelay(1000, 1500);
+      let inputCleared = false;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        inputCleared = (await input.inputValue().catch(() => "")) === "";
+        if (inputCleared) break;
+        await page.waitForTimeout(150);
+      }
+
+      if (!inputCleared) {
+        const submitButton = page.locator(joinAlt(Selectors.chat.submitButton)).first();
+        if (
+          (await submitButton.count()) === 0 ||
+          !(await submitButton.isVisible().catch(() => false)) ||
+          !(await submitButton.isEnabled().catch(() => false))
+        ) {
+          throw new Error("NotebookLM did not accept the question submission");
+        }
+        await submitButton.click();
+      }
+
+      await randomDelay(250, 500);
 
       // Wait for the response with streaming-stability detection (issue #43).
       // Timeout comes from the request-scoped configuration so concurrent
       // HTTP calls cannot overwrite one another's limits.
-      log.info(`  ⏳ Waiting for response (streaming-stability)...`);
-      await sendProgress?.("Waiting for NotebookLM response (streaming-stability)...", 3, 5);
+      log.info(`  ⏳ Waiting for the completed response for this turn...`);
+      await sendProgress?.("Waiting for NotebookLM final response...", 3, 5);
       const answer = await waitForStableAnswer(page, {
         question,
         timeoutMs: config.answerTimeoutMs,
@@ -804,11 +822,38 @@ export class BrowserSession {
         await this.init();
       }
       log.info(`🔄 [${this.sessionId}] Resetting chat history...`);
-      // Reload the page to clear chat history
-      await (this.page as Page).reload({ waitUntil: "domcontentloaded" });
-      await randomDelay(2000, 3000);
+      const page = this.page as Page;
 
-      // Wait for interface to be ready again
+      // Reloading does not clear NotebookLM's server-side conversation. Use
+      // the actual "Clear chat history" action exposed by the current UI.
+      const optionsButton = page.locator(joinAlt(Selectors.chat.optionsButton)).first();
+      await optionsButton.waitFor({ state: "visible", timeout: 10_000 });
+      await optionsButton.click();
+
+      const clearHistoryItem = page.locator(joinAlt(Selectors.chat.clearHistoryMenuItem)).first();
+      await clearHistoryItem.waitFor({ state: "visible", timeout: 5_000 });
+      await clearHistoryItem.click();
+
+      // Some NotebookLM builds ask for confirmation; others clear directly.
+      await page.waitForTimeout(300);
+      const dialog = page.locator('[role="dialog"]').last();
+      if ((await dialog.count()) > 0 && (await dialog.isVisible().catch(() => false))) {
+        const confirmButton = dialog
+          .locator(joinAlt(Selectors.chat.clearHistoryConfirmButton))
+          .last();
+        await confirmButton.waitFor({ state: "visible", timeout: 5_000 });
+        await confirmButton.click();
+      }
+
+      const clearDeadline = Date.now() + 15_000;
+      const answers = page.locator(Selectors.chat.answerContainer);
+      while (Date.now() < clearDeadline && (await answers.count()) > 0) {
+        await page.waitForTimeout(250);
+      }
+      if ((await answers.count()) > 0) {
+        throw new Error("NotebookLM did not clear the chat history");
+      }
+
       await this.waitForNotebookLMReady();
 
       // Reset message count

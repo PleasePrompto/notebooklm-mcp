@@ -1,13 +1,13 @@
 /**
- * NotebookLM chat extraction with streaming-stability detection.
+ * NotebookLM chat extraction with turn correlation and completion detection.
  *
  * Replaces the legacy `waitForLatestAnswer()` (issue #43). Old logic gated on
  * `div.thinking-message`, which Google removed; calls timed out even though
- * the answer was visible. New logic only relies on the answer container itself
- * and treats text as final once it has been *stable* across N consecutive
- * polls (default 3). That makes the wait robust to UI churn and Material-icon
- * leaks (`more_vert`, `more_horiz`, …) which would otherwise destabilise the
- * extracted text.
+ * the answer was visible. NotebookLM's current Gemini UI also renders loading
+ * phrases and private reasoning in `.message-text-content`, so text stability
+ * alone is not a completion signal. The current logic correlates an assistant
+ * card with the exact submitted user turn and only accepts it after Gemini's
+ * stop button disappears and the final `.message-actions` controls appear.
  *
  * Companion fixes:
  * - issue #14 / #27 — timeout is fully configurable per call
@@ -204,16 +204,121 @@ export interface AskOptions {
   stablePolls?: number;
 }
 
+export interface ChatMessageSnapshot {
+  role: "user" | "assistant";
+  text: string;
+  complete?: boolean;
+}
+
+interface TurnAnswerState {
+  userFound: boolean;
+  text: string | null;
+  complete: boolean;
+  generating: boolean;
+}
+
+/**
+ * Canonical form used to correlate a rendered user message with the submitted
+ * question. NotebookLM may change line wrapping while preserving the content.
+ */
+export function normalizeChatText(text: string): string {
+  return text.normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Pure turn-selection helper used by tests and the DOM extraction path.
+ * A stable but incomplete Gemini reasoning card is deliberately rejected.
+ */
+export function findCompletedTurnAnswer(
+  messages: ChatMessageSnapshot[],
+  question: string
+): string | null {
+  const expected = normalizeChatText(question);
+  let userIndex = -1;
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index];
+    if (message.role === "user" && normalizeChatText(message.text) === expected) {
+      userIndex = index;
+    }
+  }
+
+  if (userIndex < 0) return null;
+
+  for (let index = userIndex + 1; index < messages.length; index++) {
+    const message = messages[index];
+    if (message.role === "user") return null;
+    if (message.role === "assistant") {
+      return message.complete ? sanitizeAnswer(message.text) || null : null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Scroll to the newest turn and wait briefly for NotebookLM's virtualised
+ * history to hydrate. Without this, the chat input can be ready while the DOM
+ * still reports zero prior messages.
+ */
+export async function settleChatHistory(page: Page, timeoutMs = 5_000): Promise<void> {
+  try {
+    const jumpButton = page.locator(Selectors.chat.jumpToBottomButton).first();
+    if ((await jumpButton.count()) > 0 && (await jumpButton.isVisible())) {
+      await jumpButton.click({ timeout: 2_000 });
+    }
+  } catch {
+    // The button is absent when the viewport is already at the bottom.
+  }
+
+  const messages = page.locator(Selectors.chat.message);
+  try {
+    if ((await messages.count()) > 0) {
+      await messages.last().scrollIntoViewIfNeeded({ timeout: 2_000 });
+    }
+  } catch {
+    // Hydration may replace the last element while it is being scrolled.
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  let previousSignature = "";
+  let stablePolls = 0;
+
+  while (Date.now() < deadline) {
+    let signature: string;
+    try {
+      const count = await messages.count();
+      const latest = count > 0 ? normalizeChatText(await messages.last().innerText()) : "";
+      signature = `${count}|${latest}`;
+    } catch {
+      stablePolls = 0;
+      await safeSleep(page, 250);
+      continue;
+    }
+
+    if (signature === previousSignature) {
+      stablePolls++;
+      if (stablePolls >= 3) return;
+    } else {
+      previousSignature = signature;
+      stablePolls = 1;
+    }
+
+    await safeSleep(page, 250);
+  }
+}
+
 /**
  * Snapshot every visible assistant answer text *before* a new question is
  * submitted. Pass the result into `waitForStableAnswer({ ignoreTexts })` so
  * the new turn isn't confused with prior turns in the same session.
  */
 export async function snapshotPriorAnswers(page: Page): Promise<string[]> {
+  await settleChatHistory(page);
   return page
     .locator(Selectors.chat.answerText)
     .allInnerTexts()
-    .then((texts) => texts.map((t) => t.trim()).filter(Boolean))
+    .then((texts) => texts.map(sanitizeAnswer).filter(Boolean))
     .catch(() => []);
 }
 
@@ -237,8 +342,8 @@ export async function waitForStableAnswer(
   } = options;
 
   const deadline = Date.now() + timeoutMs;
-  const echoLower = question.trim().toLowerCase();
-  const ignoreSet = new Set(ignoreTexts.map((t) => t.trim()).filter(Boolean));
+  const echoText = normalizeChatText(question).toLowerCase();
+  const ignoreSet = new Set(ignoreTexts.map(sanitizeAnswer).filter(Boolean));
   // Hard ceiling on poll iterations defends against pathological
   // pollIntervalMs values combined with zombie-page sleep returns (issue #16).
   const maxPolls = Math.max(8, Math.ceil(timeoutMs / Math.max(50, pollIntervalMs)) + 4);
@@ -246,6 +351,7 @@ export async function waitForStableAnswer(
   let lastSeen: string | null = null;
   let stableStreak = 0;
   let pollCount = 0;
+  let sawGeneration = false;
 
   while (Date.now() < deadline && pollCount < maxPolls) {
     pollCount++;
@@ -256,16 +362,25 @@ export async function waitForStableAnswer(
       throw new Error("Browser page unresponsive: health check timed out");
     }
 
-    let candidate: string | null = null;
+    let state: TurnAnswerState = {
+      userFound: false,
+      text: null,
+      complete: false,
+      generating: false,
+    };
     try {
-      candidate = await readLatestAnswer(page);
+      state = question
+        ? await readAnswerForQuestion(page, question)
+        : await readLatestAnswerState(page);
     } catch (err) {
       if (isRecoverable(err)) throw err;
       // Non-fatal extraction blip — try again next tick.
     }
 
+    sawGeneration ||= state.generating;
+    const candidate = state.text;
     if (candidate) {
-      const isEcho = candidate.toLowerCase() === echoLower;
+      const isEcho = normalizeChatText(candidate).toLowerCase() === echoText;
       const isPrior = ignoreSet.has(candidate);
 
       if (!isEcho && !isPrior) {
@@ -281,20 +396,34 @@ export async function waitForStableAnswer(
 
         // Hard errors and rate-limit messages can be returned immediately —
         // there is no "stable" follow-up text coming.
-        if (isErrorMessage(candidate) || isRateLimitText(candidate)) {
+        if (!state.generating && (isErrorMessage(candidate) || isRateLimitText(candidate))) {
           return candidate;
         }
 
-        if (candidate === lastSeen) {
-          stableStreak++;
-          if (stableStreak >= stablePolls) {
-            return candidate;
+        // `.message-actions` is rendered only for a completed answer in the
+        // current UI. `sawGeneration` is a compatibility fallback for older
+        // layouts that expose the stop button but not the action row.
+        const hasCompletionSignal = state.complete || (sawGeneration && !state.generating);
+
+        if (hasCompletionSignal) {
+          if (candidate === lastSeen) {
+            stableStreak++;
+            if (stableStreak >= stablePolls) {
+              return candidate;
+            }
+          } else {
+            lastSeen = candidate;
+            stableStreak = 1;
           }
         } else {
-          lastSeen = candidate;
-          stableStreak = 1;
+          stableStreak = 0;
+          lastSeen = null;
         }
       }
+    } else if (question && state.userFound) {
+      // The user turn exists, but its assistant card has not mounted yet.
+      stableStreak = 0;
+      lastSeen = null;
     }
 
     await safeSleep(page, pollIntervalMs);
@@ -304,20 +433,127 @@ export async function waitForStableAnswer(
 }
 
 /**
- * Read the latest answer container's text and strip UI-control leakage.
- * Uses `:last-child` so we always target the most recent turn.
+ * Read the answer card immediately following the exact submitted user turn.
+ * This prevents hydrated history or an older stable card from being returned.
  */
-async function readLatestAnswer(page: Page): Promise<string | null> {
+async function readAnswerForQuestion(page: Page, question: string): Promise<TurnAnswerState> {
+  const expected = normalizeChatText(question);
+  const messages = page.locator(Selectors.chat.message);
+
   try {
-    const raw = await page
-      .locator(Selectors.chat.latestAnswerText)
-      .last()
-      .innerText({ timeout: 2_000 });
+    const match = await messages.evaluateAll((elements, expectedText) => {
+      const normalize = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim();
+      let userIndex = -1;
+
+      for (let index = 0; index < elements.length; index++) {
+        const user = elements[index].querySelector(".from-user-container");
+        if (user && normalize((user as HTMLElement).innerText) === expectedText) {
+          userIndex = index;
+        }
+      }
+
+      if (userIndex < 0) {
+        return { userFound: false, answerIndex: -1, complete: false };
+      }
+
+      for (let index = userIndex + 1; index < elements.length; index++) {
+        if (elements[index].querySelector(".from-user-container")) break;
+        const answer = elements[index].querySelector(".to-user-container");
+        if (answer) {
+          return {
+            userFound: true,
+            answerIndex: index,
+            complete: Boolean(answer.querySelector(".message-actions")),
+          };
+        }
+      }
+
+      return { userFound: true, answerIndex: -1, complete: false };
+    }, expected);
+
+    const generating = await isGenerating(page);
+    if (match.answerIndex < 0) {
+      return { userFound: match.userFound, text: null, complete: false, generating };
+    }
+
+    const textElement = messages
+      .nth(match.answerIndex)
+      .locator(".to-user-container .message-text-content")
+      .first();
+    const raw = await readFormattedAnswer(textElement);
     const cleaned = sanitizeAnswer(raw);
-    return cleaned.length > 0 ? cleaned : null;
+
+    return {
+      userFound: true,
+      text: cleaned || null,
+      complete: match.complete && !generating,
+      generating,
+    };
   } catch {
-    return null;
+    return { userFound: false, text: null, complete: false, generating: false };
   }
+}
+
+async function readLatestAnswerState(page: Page): Promise<TurnAnswerState> {
+  try {
+    const answers = page.locator(Selectors.chat.answerContainer);
+    if ((await answers.count()) === 0) {
+      return { userFound: false, text: null, complete: false, generating: false };
+    }
+
+    const latest = answers.last();
+    const generating = await isGenerating(page);
+    const complete = (await latest.locator(".message-actions").count()) > 0 && !generating;
+    const raw = await readFormattedAnswer(latest.locator(".message-text-content").first());
+    const cleaned = sanitizeAnswer(raw);
+    return {
+      userFound: false,
+      text: cleaned || null,
+      complete,
+      generating,
+    };
+  } catch {
+    return { userFound: false, text: null, complete: false, generating: false };
+  }
+}
+
+async function isGenerating(page: Page): Promise<boolean> {
+  const stopButton = page.locator(Selectors.chat.stopButton).first();
+  return (await stopButton.count()) > 0 && (await stopButton.isVisible().catch(() => false));
+}
+
+/**
+ * Preserve NotebookLM's rendered block layout and add Markdown markers that
+ * browser `innerText` omits for lists and inline citations.
+ */
+async function readFormattedAnswer(textElement: ReturnType<Page["locator"]>): Promise<string> {
+  return textElement.evaluate((element) => {
+    const clone = element.cloneNode(true) as HTMLElement;
+
+    clone.querySelectorAll("button.citation-marker").forEach((button) => {
+      const label = (button.textContent || "").trim();
+      const replacement = document.createTextNode(/^\d+$/.test(label) ? `[${label}]` : "");
+      button.replaceWith(replacement);
+    });
+
+    clone.querySelectorAll("ul, ol").forEach((list) => {
+      const directItems = Array.from(list.querySelectorAll("li")).filter(
+        (item) => item.closest("ul, ol") === list
+      );
+      directItems.forEach((item, index) => {
+        const prefix = list.tagName === "OL" ? `${index + 1}. ` : "- ";
+        item.prepend(document.createTextNode(prefix));
+      });
+    });
+
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText = "position:fixed;left:-100000px;top:0;width:800px;visibility:visible";
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+    const text = clone.innerText;
+    wrapper.remove();
+    return text;
+  });
 }
 
 /**
@@ -333,9 +569,13 @@ export function sanitizeAnswer(text: string): string {
     .map((line) => line.trim());
 
   const kept: string[] = [];
+  let pendingBlank = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (!line) continue;
+    if (!line) {
+      pendingBlank = kept.length > 0;
+      continue;
+    }
 
     if (Selectors.uiControlLabels.has(line)) continue;
 
@@ -348,11 +588,14 @@ export function sanitizeAnswer(text: string): string {
     if (/^\d+$/.test(line) && nextIsControl) continue;
     if (/^[.,;:!?]+$/.test(line) && (nextIsControl || prevIsControl)) continue;
 
+    if (pendingBlank && kept.at(-1) !== "") kept.push("");
     kept.push(line);
+    pendingBlank = false;
   }
 
   return kept
     .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .replace(/[ \t]+([.,;:!?])/g, "$1")
     .trim();
 }

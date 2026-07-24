@@ -192,6 +192,8 @@ function parseProfileStrategy(
  * Apply environment variable overrides (legacy support)
  */
 function applyEnvOverrides(config: Config): Config {
+  const dataDir = process.env.NOTEBOOKLM_DATA_DIR || config.dataDir;
+
   return {
     ...config,
     // Override with env vars if present
@@ -219,6 +221,10 @@ function applyEnvOverrides(config: Config): Config {
     typingWpmMax: parseInteger(process.env.TYPING_WPM_MAX, config.typingWpmMax),
     minDelayMs: parseInteger(process.env.MIN_DELAY_MS, config.minDelayMs),
     maxDelayMs: parseInteger(process.env.MAX_DELAY_MS, config.maxDelayMs),
+    dataDir,
+    browserStateDir: path.join(dataDir, "browser_state"),
+    chromeProfileDir: path.join(dataDir, "chrome_profile"),
+    chromeInstancesDir: path.join(dataDir, "chrome_profile_instances"),
     notebookDescription: process.env.NOTEBOOK_DESCRIPTION || config.notebookDescription,
     notebookTopics: parseArray(process.env.NOTEBOOK_TOPICS, config.notebookTopics),
     notebookContentTypes: parseArray(
