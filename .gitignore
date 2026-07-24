@@ -16,6 +16,7 @@ chrome_profile/
 .notebooklm-mcp/
 .claude/
 CLAUDE.md
+.rtfm/
 
 # IDE
 .vscode/
