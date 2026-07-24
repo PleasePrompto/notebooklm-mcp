@@ -15,7 +15,7 @@ import type {
 } from "../library/types.js";
 import type { AddSourceResult } from "../notebooklm/sources.js";
 import type { AudioGenerationResult, DownloadAudioResult } from "../notebooklm/audio.js";
-import { CONFIG, applyBrowserOptions, type BrowserOptions } from "../config.js";
+import { CONFIG, applyBrowserOptions, withRuntimeConfig, type BrowserOptions } from "../config.js";
 import { log } from "../utils/logger.js";
 import type { AskQuestionResult, ToolResult, ProgressCallback } from "../types.js";
 import { RateLimitError } from "../errors.js";
@@ -116,23 +116,21 @@ export class ToolHandlers {
       // Progress: Getting or creating session
       await sendProgress?.("Getting or creating browser session...", 1, 5);
 
-      // Apply browser options temporarily
-      const originalConfig = { ...CONFIG };
+      // Keep browser overrides scoped to this asynchronous call. This is
+      // concurrency-safe under Streamable HTTP.
       const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
-      Object.assign(CONFIG, effectiveConfig);
 
-      // Calculate overrideHeadless parameter for session manager
-      // show_browser takes precedence over browser_options.headless
+      // Advanced browser_options take precedence over the legacy shorthand.
       let overrideHeadless: boolean | undefined = undefined;
-      if (show_browser !== undefined) {
-        overrideHeadless = show_browser;
-      } else if (browser_options?.show !== undefined) {
+      if (browser_options?.show !== undefined) {
         overrideHeadless = browser_options.show;
       } else if (browser_options?.headless !== undefined) {
         overrideHeadless = !browser_options.headless;
+      } else if (show_browser !== undefined) {
+        overrideHeadless = show_browser;
       }
 
-      try {
+      return await withRuntimeConfig(effectiveConfig, async () => {
         // Get or create session (with headless override to handle mode changes)
         const session = await this.sessionManager.getOrCreateSession(
           session_id,
@@ -144,11 +142,13 @@ export class ToolHandlers {
         await sendProgress?.("Asking question to NotebookLM...", 2, 5);
 
         // Ask the question (pass progress callback)
-        const rawAnswer = await session.ask(question, sendProgress);
-
-        // Extract citations from the same page session before any other call
-        // disturbs the source panel (issue #20).
-        const citationResult = await session.extractCitations(rawAnswer, source_format);
+        // Asking and citation extraction share one per-session lock so a
+        // concurrent follow-up cannot disturb the citation panel.
+        const citationResult = await session.askAndExtractCitations(
+          question,
+          source_format,
+          sendProgress
+        );
         const baseAnswer = citationResult.formattedAnswer;
 
         const trimmed = baseAnswer.trimEnd();
@@ -184,10 +184,7 @@ export class ToolHandlers {
           success: true,
           data: result,
         };
-      } finally {
-        // Restore original CONFIG
-        Object.assign(CONFIG, originalConfig);
-      }
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -462,58 +459,54 @@ export class ToolHandlers {
 
     const startTime = Date.now();
 
-    // Apply browser options temporarily
-    const originalConfig = { ...CONFIG };
     const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
-    Object.assign(CONFIG, effectiveConfig);
 
-    try {
-      // Progress: Starting
-      await sendProgress?.("Preparing authentication browser...", 1, 10);
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      try {
+        // Progress: Starting
+        await sendProgress?.("Preparing authentication browser...", 1, 10);
 
-      log.info(`  🌐 Opening browser for interactive login...`);
+        log.info(`  🌐 Opening browser for interactive login...`);
 
-      // Progress: Opening browser
-      await sendProgress?.("Opening browser window...", 2, 10);
+        // Progress: Opening browser
+        await sendProgress?.("Opening browser window...", 2, 10);
 
-      // Perform setup with progress updates (uses CONFIG internally)
-      const success = await this.authManager.performSetup(sendProgress);
+        // Perform setup with progress updates (uses CONFIG internally)
+        const success = await this.authManager.performSetup(sendProgress);
 
-      const durationSeconds = (Date.now() - startTime) / 1000;
+        const durationSeconds = (Date.now() - startTime) / 1000;
 
-      if (success) {
-        // Progress: Complete
-        await sendProgress?.("Authentication saved successfully!", 10, 10);
+        if (success) {
+          // Progress: Complete
+          await sendProgress?.("Authentication saved successfully!", 10, 10);
 
-        log.success(`✅ [TOOL] setup_auth completed (${durationSeconds.toFixed(1)}s)`);
-        return {
-          success: true,
-          data: {
-            status: "authenticated",
-            message: "Successfully authenticated and saved browser state",
-            authenticated: true,
-            duration_seconds: durationSeconds,
-          },
-        };
-      } else {
-        log.error(`❌ [TOOL] setup_auth failed (${durationSeconds.toFixed(1)}s)`);
+          log.success(`✅ [TOOL] setup_auth completed (${durationSeconds.toFixed(1)}s)`);
+          return {
+            success: true,
+            data: {
+              status: "authenticated",
+              message: "Successfully authenticated and saved browser state",
+              authenticated: true,
+              duration_seconds: durationSeconds,
+            },
+          };
+        } else {
+          log.error(`❌ [TOOL] setup_auth failed (${durationSeconds.toFixed(1)}s)`);
+          return {
+            success: false,
+            error: "Authentication failed or was cancelled",
+          };
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const durationSeconds = (Date.now() - startTime) / 1000;
+        log.error(`❌ [TOOL] setup_auth failed: ${errorMessage} (${durationSeconds.toFixed(1)}s)`);
         return {
           success: false,
-          error: "Authentication failed or was cancelled",
+          error: errorMessage,
         };
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const durationSeconds = (Date.now() - startTime) / 1000;
-      log.error(`❌ [TOOL] setup_auth failed: ${errorMessage} (${durationSeconds.toFixed(1)}s)`);
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    } finally {
-      // Restore original CONFIG
-      Object.assign(CONFIG, originalConfig);
-    }
+    });
   }
 
   /**
@@ -550,63 +543,59 @@ export class ToolHandlers {
 
     const startTime = Date.now();
 
-    // Apply browser options temporarily
-    const originalConfig = { ...CONFIG };
     const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
-    Object.assign(CONFIG, effectiveConfig);
 
-    try {
-      // 1. Close all active sessions
-      await sendProgress?.("Closing all active sessions...", 1, 12);
-      log.info("  🛑 Closing all sessions...");
-      await this.sessionManager.closeAllSessions();
-      log.success("  ✅ All sessions closed");
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      try {
+        // 1. Close all active sessions
+        await sendProgress?.("Closing all active sessions...", 1, 12);
+        log.info("  🛑 Closing all sessions...");
+        await this.sessionManager.closeAllSessions();
+        log.success("  ✅ All sessions closed");
 
-      // 2. Clear all auth data
-      await sendProgress?.("Clearing authentication data...", 2, 12);
-      log.info("  🗑️  Clearing all auth data...");
-      await this.authManager.clearAllAuthData();
-      log.success("  ✅ Auth data cleared");
+        // 2. Clear all auth data
+        await sendProgress?.("Clearing authentication data...", 2, 12);
+        log.info("  🗑️  Clearing all auth data...");
+        await this.authManager.clearAllAuthData();
+        log.success("  ✅ Auth data cleared");
 
-      // 3. Perform fresh setup
-      await sendProgress?.("Starting fresh authentication...", 3, 12);
-      log.info("  🌐 Starting fresh authentication setup...");
-      const success = await this.authManager.performSetup(sendProgress);
+        // 3. Perform fresh setup
+        await sendProgress?.("Starting fresh authentication...", 3, 12);
+        log.info("  🌐 Starting fresh authentication setup...");
+        const success = await this.authManager.performSetup(sendProgress);
 
-      const durationSeconds = (Date.now() - startTime) / 1000;
+        const durationSeconds = (Date.now() - startTime) / 1000;
 
-      if (success) {
-        await sendProgress?.("Re-authentication complete!", 12, 12);
-        log.success(`✅ [TOOL] re_auth completed (${durationSeconds.toFixed(1)}s)`);
-        return {
-          success: true,
-          data: {
-            status: "authenticated",
-            message:
-              "Successfully re-authenticated with new account. All previous sessions have been closed.",
-            authenticated: true,
-            duration_seconds: durationSeconds,
-          },
-        };
-      } else {
-        log.error(`❌ [TOOL] re_auth failed (${durationSeconds.toFixed(1)}s)`);
+        if (success) {
+          await sendProgress?.("Re-authentication complete!", 12, 12);
+          log.success(`✅ [TOOL] re_auth completed (${durationSeconds.toFixed(1)}s)`);
+          return {
+            success: true,
+            data: {
+              status: "authenticated",
+              message:
+                "Successfully re-authenticated with new account. All previous sessions have been closed.",
+              authenticated: true,
+              duration_seconds: durationSeconds,
+            },
+          };
+        } else {
+          log.error(`❌ [TOOL] re_auth failed (${durationSeconds.toFixed(1)}s)`);
+          return {
+            success: false,
+            error: "Re-authentication failed or was cancelled",
+          };
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const durationSeconds = (Date.now() - startTime) / 1000;
+        log.error(`❌ [TOOL] re_auth failed: ${errorMessage} (${durationSeconds.toFixed(1)}s)`);
         return {
           success: false,
-          error: "Re-authentication failed or was cancelled",
+          error: errorMessage,
         };
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const durationSeconds = (Date.now() - startTime) / 1000;
-      log.error(`❌ [TOOL] re_auth failed: ${errorMessage} (${durationSeconds.toFixed(1)}s)`);
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    } finally {
-      // Restore original CONFIG
-      Object.assign(CONFIG, originalConfig);
-    }
+    });
   }
 
   /**
@@ -968,32 +957,28 @@ export class ToolHandlers {
     show_browser?: boolean;
   }): Promise<ToolResult<{ result: AddSourceResult }>> {
     log.info(`🔧 [TOOL] add_source called (type=${args.type})`);
-    const originalConfig = { ...CONFIG };
-    if (args.show_browser !== undefined) {
-      const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
-      Object.assign(CONFIG, effectiveConfig);
-    }
+    const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
     const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
-    try {
-      const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
-      const session = await this.sessionManager.getOrCreateSession(
-        args.session_id,
-        url,
-        overrideHeadless
-      );
-      const result = await session.addSource({
-        type: args.type,
-        content: args.content,
-        title: args.title,
-      });
-      return { success: result.success, data: { result } };
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      log.error(`❌ [TOOL] add_source failed: ${msg}`);
-      return { success: false, error: msg };
-    } finally {
-      Object.assign(CONFIG, originalConfig);
-    }
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      try {
+        const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
+        const session = await this.sessionManager.getOrCreateSession(
+          args.session_id,
+          url,
+          overrideHeadless
+        );
+        const result = await session.addSource({
+          type: args.type,
+          content: args.content,
+          title: args.title,
+        });
+        return { success: result.success, data: { result } };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        log.error(`❌ [TOOL] add_source failed: ${msg}`);
+        return { success: false, error: msg };
+      }
+    });
   }
 
   /**
@@ -1009,37 +994,34 @@ export class ToolHandlers {
     show_browser?: boolean;
   }): Promise<ToolResult<{ result: AudioGenerationResult }>> {
     log.info(`🔧 [TOOL] generate_audio called`);
-    const originalConfig = { ...CONFIG };
-    if (args.show_browser !== undefined) {
-      Object.assign(CONFIG, applyBrowserOptions(undefined, args.show_browser));
-    }
+    const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
     const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
-    try {
-      const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
-      const session = await this.sessionManager.getOrCreateSession(
-        args.session_id,
-        url,
-        overrideHeadless
-      );
-      const result = await session.generateAudio({
-        customPrompt: args.custom_prompt,
-        timeoutMs: args.timeout_ms,
-        waitForCompletion: args.wait_for_completion ?? false,
-      });
-      // `started` and `in_progress` count as success — the generation is on
-      // its way; the caller polls `get_audio_status` for completion.
-      const ok =
-        result.status === "ready" ||
-        result.status === "started" ||
-        result.status === "in_progress";
-      return { success: ok, data: { result } };
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      log.error(`❌ [TOOL] generate_audio failed: ${msg}`);
-      return { success: false, error: msg };
-    } finally {
-      Object.assign(CONFIG, originalConfig);
-    }
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      try {
+        const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
+        const session = await this.sessionManager.getOrCreateSession(
+          args.session_id,
+          url,
+          overrideHeadless
+        );
+        const result = await session.generateAudio({
+          customPrompt: args.custom_prompt,
+          timeoutMs: args.timeout_ms,
+          waitForCompletion: args.wait_for_completion ?? false,
+        });
+        // `started` and `in_progress` count as success — the generation is on
+        // its way; the caller polls `get_audio_status` for completion.
+        const ok =
+          result.status === "ready" ||
+          result.status === "started" ||
+          result.status === "in_progress";
+        return { success: ok, data: { result } };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        log.error(`❌ [TOOL] generate_audio failed: ${msg}`);
+        return { success: false, error: msg };
+      }
+    });
   }
 
   /**
@@ -1052,27 +1034,24 @@ export class ToolHandlers {
     show_browser?: boolean;
   }): Promise<ToolResult<{ result: AudioGenerationResult }>> {
     log.info(`🔧 [TOOL] get_audio_status called`);
-    const originalConfig = { ...CONFIG };
-    if (args.show_browser !== undefined) {
-      Object.assign(CONFIG, applyBrowserOptions(undefined, args.show_browser));
-    }
+    const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
     const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
-    try {
-      const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
-      const session = await this.sessionManager.getOrCreateSession(
-        args.session_id,
-        url,
-        overrideHeadless
-      );
-      const result = await session.getAudioStatus();
-      return { success: true, data: { result } };
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      log.error(`❌ [TOOL] get_audio_status failed: ${msg}`);
-      return { success: false, error: msg };
-    } finally {
-      Object.assign(CONFIG, originalConfig);
-    }
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      try {
+        const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
+        const session = await this.sessionManager.getOrCreateSession(
+          args.session_id,
+          url,
+          overrideHeadless
+        );
+        const result = await session.getAudioStatus();
+        return { success: true, data: { result } };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        log.error(`❌ [TOOL] get_audio_status failed: ${msg}`);
+        return { success: false, error: msg };
+      }
+    });
   }
 
   /**
@@ -1086,27 +1065,24 @@ export class ToolHandlers {
     show_browser?: boolean;
   }): Promise<ToolResult<{ result: DownloadAudioResult }>> {
     log.info(`🔧 [TOOL] download_audio called`);
-    const originalConfig = { ...CONFIG };
-    if (args.show_browser !== undefined) {
-      Object.assign(CONFIG, applyBrowserOptions(undefined, args.show_browser));
-    }
+    const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
     const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
-    try {
-      const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
-      const session = await this.sessionManager.getOrCreateSession(
-        args.session_id,
-        url,
-        overrideHeadless
-      );
-      const result = await session.downloadAudio(args.destination_dir);
-      return { success: result.success, data: { result } };
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      log.error(`❌ [TOOL] download_audio failed: ${msg}`);
-      return { success: false, error: msg };
-    } finally {
-      Object.assign(CONFIG, originalConfig);
-    }
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      try {
+        const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
+        const session = await this.sessionManager.getOrCreateSession(
+          args.session_id,
+          url,
+          overrideHeadless
+        );
+        const result = await session.downloadAudio(args.destination_dir);
+        return { success: result.success, data: { result } };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        log.error(`❌ [TOOL] download_audio failed: ${msg}`);
+        return { success: false, error: msg };
+      }
+    });
   }
 
   /**
@@ -1114,7 +1090,7 @@ export class ToolHandlers {
    */
   async cleanup(): Promise<void> {
     log.info(`🧹 Cleaning up tool handlers...`);
-    await this.sessionManager.closeAllSessions();
+    await this.sessionManager.shutdown();
     log.success(`✅ Tool handlers cleanup complete`);
   }
 }

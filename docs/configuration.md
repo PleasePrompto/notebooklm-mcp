@@ -18,6 +18,10 @@ The server uses `env-paths` with no suffix. Default locations:
 | macOS | `~/Library/Application Support/notebooklm-mcp/` | `~/Library/Preferences/notebooklm-mcp/` |
 | Windows | `%APPDATA%\notebooklm-mcp\` | `%APPDATA%\notebooklm-mcp\Config\` |
 
+Set `NOTEBOOKLM_DATA_DIR` to use an explicit data root instead of the
+platform default. `browser_state/`, `chrome_profile/`, profile instances, and
+`library.json` are all resolved below that directory.
+
 Subdirectories under `dataDir`:
 
 - `chrome_profile/` — persistent Chrome profile (cookies, fingerprint).
@@ -33,7 +37,7 @@ Subdirectories under `dataDir`:
 |---|---|---|---|
 | `HEADLESS` | bool | `true` | Run Chrome headless. Per-call override via `show_browser` or `browser_options.show`. |
 | `BROWSER_TIMEOUT` | int (ms) | `30000` | Per-action browser timeout. |
-| `ANSWER_TIMEOUT_MS` | int (ms) | `600000` | Hard ceiling on the wait for a NotebookLM answer. Per-call override via `browser_options.timeout_ms`. |
+| `ANSWER_TIMEOUT_MS` | int (ms) | `600000` | Hard ceiling on the wait for a NotebookLM answer. Per-call override via `browser_options.answer_timeout_ms`. |
 | `BROWSER_CHANNEL` | enum | `chrome` | `chrome` or `chromium`. `chromium` forces the bundled Patchright build. |
 | `NOTEBOOKLM_BROWSER_CHANNEL` | enum | _(falls back to `BROWSER_CHANNEL`)_ | Same as above. Either name works. |
 
@@ -94,6 +98,14 @@ Slug rules: `[a-z0-9][a-z0-9-_]{0,30}`, case-insensitive (lowercased internally)
 | `NOTEBOOKLM_TRANSPORT` | enum | `stdio` | `stdio` or `http`. CLI flag `--transport` overrides. |
 | `NOTEBOOKLM_PORT` | int | `3000` | HTTP port. CLI flag `--port` overrides. |
 | `NOTEBOOKLM_HOST` | string | `127.0.0.1` | HTTP bind address. CLI flag `--host` overrides. |
+| `NOTEBOOKLM_HTTP_AUTH_TOKEN` | string | _(unset)_ | Bearer token. Required when binding outside localhost. |
+| `NOTEBOOKLM_ALLOWED_HOSTS` | CSV | loopback hosts | Allowed HTTP `Host` values. Add the public proxy hostname here. |
+| `NOTEBOOKLM_ALLOWED_ORIGINS` | CSV | loopback origins | Allowed browser `Origin` values. |
+| `NOTEBOOKLM_HTTP_MAX_BODY_BYTES` | int | `1048576` | Maximum JSON request size. |
+
+Requests with an `Origin` header are rejected unless the origin is loopback or
+listed explicitly. When an auth token is configured, clients must send
+`Authorization: Bearer <token>`.
 
 ## Profiles & tool filtering
 
@@ -147,6 +159,7 @@ These set the description used for the legacy fallback when no notebook is activ
   "show": true,
   "headless": false,
   "timeout_ms": 60000,
+  "answer_timeout_ms": 600000,
   "stealth": {
     "enabled": true,
     "random_delays": true,
@@ -160,5 +173,9 @@ These set the description used for the legacy fallback when no notebook is activ
   "viewport": { "width": 1024, "height": 768 }
 }
 ```
+
+`timeout_ms` controls individual browser actions. `answer_timeout_ms` controls
+the complete wait for a generated answer. Overrides are request-scoped and do
+not mutate configuration used by concurrent HTTP calls.
 
 `show_browser` is a shorthand for `browser_options.show` and exists only on `ask_question`, `setup_auth`, `re_auth`. When both are present, `browser_options` wins.

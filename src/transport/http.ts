@@ -15,11 +15,11 @@
 
 import {
   createServer,
-  IncomingMessage,
   type Server as HttpServer,
-  ServerResponse,
+  type IncomingMessage,
+  type ServerResponse,
 } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -28,6 +28,10 @@ import { log } from "../utils/logger.js";
 export interface HttpTransportOptions {
   port: number;
   host?: string;
+  authToken?: string;
+  allowedOrigins?: readonly string[];
+  allowedHosts?: readonly string[];
+  maxBodyBytes?: number;
   /** Connect callback invoked once per new session — wires the McpServer to the transport. */
   connect: (transport: StreamableHTTPServerTransport) => Promise<void>;
 }
@@ -44,13 +48,29 @@ export async function startHttpTransport(opts: HttpTransportOptions): Promise<Ht
 
   const server = createServer((req, res) => {
     void handleRequest(req, res, transports, opts).catch((err) => {
-      log.error(`❌ [HTTP] Unhandled request error: ${err}`);
+      if (err instanceof HttpRequestError) {
+        log.warning(`⚠️  [HTTP] Rejected request: ${err.message}`);
+      } else {
+        log.error(`❌ [HTTP] Unhandled request error: ${err}`);
+      }
       if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "internal server error" }));
+        const status = err instanceof HttpRequestError ? err.status : 500;
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error: status === 500 ? "internal server error" : String(err.message),
+          })
+        );
       }
     });
   });
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 15_000;
+
+  const bindHost = opts.host ?? "127.0.0.1";
+  if (!isLoopbackHost(bindHost) && !opts.authToken) {
+    throw new Error("HTTP transport bound outside localhost requires NOTEBOOKLM_HTTP_AUTH_TOKEN");
+  }
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -98,7 +118,20 @@ async function handleRequest(
   transports: Map<string, StreamableHTTPServerTransport>,
   opts: HttpTransportOptions
 ): Promise<void> {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  applyHttpSecurity(req, res, opts);
+  const url = new URL(req.url ?? "/", "http://localhost");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      Allow: "POST, GET, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers":
+        "Authorization, Content-Type, Accept, Mcp-Session-Id, MCP-Protocol-Version",
+      "Access-Control-Expose-Headers": "Mcp-Session-Id",
+    });
+    res.end();
+    return;
+  }
 
   if (url.pathname === "/healthz" && req.method === "GET") {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -132,7 +165,7 @@ async function handleRequest(
     return;
   }
 
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req, opts.maxBodyBytes ?? 1024 * 1024);
 
   // Re-use existing session, or initialise a new one when the client says so.
   let transport = sessionId ? transports.get(sessionId) : undefined;
@@ -162,10 +195,16 @@ async function handleRequest(
   await transport.handleRequest(req, res, body);
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+async function readJsonBody(req: IncomingMessage, maxBytes: number): Promise<unknown> {
   const chunks: Buffer[] = [];
+  let receivedBytes = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    receivedBytes += buffer.length;
+    if (receivedBytes > maxBytes) {
+      throw new HttpRequestError(413, `request body exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(buffer);
   }
   if (chunks.length === 0) return undefined;
   const raw = Buffer.concat(chunks).toString("utf8");
@@ -173,11 +212,89 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   try {
     return JSON.parse(raw);
   } catch {
-    throw new Error("Invalid JSON request body");
+    throw new HttpRequestError(400, "invalid JSON request body");
   }
 }
 
 function headerString(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0];
   return value;
+}
+
+class HttpRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "HttpRequestError";
+  }
+}
+
+function applyHttpSecurity(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: HttpTransportOptions
+): void {
+  const hostHeader = headerString(req.headers.host);
+  const hostname = hostHeader ? stripPort(hostHeader).toLowerCase() : "";
+  const bindHost = (opts.host ?? "127.0.0.1").toLowerCase();
+  const allowedHosts = new Set(
+    (opts.allowedHosts ?? [bindHost, "localhost", "127.0.0.1", "::1"]).map((value) =>
+      value.toLowerCase()
+    )
+  );
+  if (!hostname || (!allowedHosts.has(hostname) && !isLoopbackHost(hostname))) {
+    throw new HttpRequestError(403, "host is not allowed");
+  }
+
+  const origin = headerString(req.headers.origin);
+  if (origin) {
+    let originUrl: URL;
+    try {
+      originUrl = new URL(origin);
+    } catch {
+      throw new HttpRequestError(403, "origin is invalid");
+    }
+    const explicitlyAllowed = new Set(opts.allowedOrigins ?? []).has(originUrl.origin);
+    if (!explicitlyAllowed && !isLoopbackHost(originUrl.hostname)) {
+      throw new HttpRequestError(403, "origin is not allowed");
+    }
+    res.setHeader("Access-Control-Allow-Origin", originUrl.origin);
+    res.setHeader("Vary", "Origin");
+  }
+
+  if (opts.authToken && req.method !== "OPTIONS") {
+    const authorization = headerString(req.headers.authorization);
+    const supplied = authorization?.startsWith("Bearer ")
+      ? authorization.slice("Bearer ".length)
+      : "";
+    if (!safeTokenEquals(supplied, opts.authToken)) {
+      res.setHeader("WWW-Authenticate", "Bearer");
+      throw new HttpRequestError(401, "missing or invalid bearer token");
+    }
+  }
+}
+
+function safeTokenEquals(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return (
+    leftBuffer.length === rightBuffer.length &&
+    leftBuffer.length > 0 &&
+    timingSafeEqual(leftBuffer, rightBuffer)
+  );
+}
+
+function stripPort(host: string): string {
+  if (host.startsWith("[")) {
+    const end = host.indexOf("]");
+    return end >= 0 ? host.slice(1, end) : host;
+  }
+  return host.replace(/:\d+$/, "");
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
 }

@@ -14,7 +14,7 @@
 
 import type { BrowserContext } from "patchright";
 import { chromium } from "patchright";
-import { CONFIG } from "../config.js";
+import { CONFIG, getRuntimeConfig } from "../config.js";
 import { log } from "../utils/logger.js";
 import type { AuthManager } from "../auth/auth-manager.js";
 import {
@@ -127,6 +127,7 @@ export class SharedContextManager {
    * @param overrideHeadless Optional override for headless mode (true = show browser)
    */
   private async recreateContext(overrideHeadless?: boolean): Promise<void> {
+    const config = getRuntimeConfig();
     // Close old context if exists
     if (this.globalContext) {
       try {
@@ -149,7 +150,7 @@ export class SharedContextManager {
     }
 
     // Determine headless mode: use override if provided, otherwise use CONFIG
-    const shouldBeHeadless = overrideHeadless !== undefined ? !overrideHeadless : CONFIG.headless;
+    const shouldBeHeadless = overrideHeadless !== undefined ? !overrideHeadless : config.headless;
 
     if (overrideHeadless !== undefined) {
       log.info(`  Browser visibility override: ${overrideHeadless ? "VISIBLE" : "HEADLESS"}`);
@@ -159,7 +160,7 @@ export class SharedContextManager {
     // NOTE: userDataDir is passed as first parameter, NOT in options!
     const baseLaunchOptions = {
       headless: shouldBeHeadless,
-      viewport: CONFIG.viewport,
+      viewport: config.viewport,
       locale: "en-US",
       timezoneId: "Europe/Berlin",
       // ✅ CRITICAL FIX: Pass storageState directly at launch!
@@ -182,8 +183,8 @@ export class SharedContextManager {
     // (issue #13 macOS Tahoe Chrome crash, issue #19 Windows exit code 21).
     // We start with the user-preferred channel (default `chrome`) and, on a
     // recognised channel-failure, retry with bundled `chromium`.
-    const baseProfile = CONFIG.chromeProfileDir;
-    const strategy = CONFIG.profileStrategy;
+    const baseProfile = config.chromeProfileDir;
+    const strategy = config.profileStrategy;
     const preferred = getPreferredChannel();
     const tryLaunch = async (userDataDir: string) => {
       log.info("  🚀 Launching persistent Chrome context...");
@@ -478,8 +479,8 @@ export class SharedContextManager {
 
     // Calculate target headless mode
     // If override is specified, use it (!overrideHeadless because true = show browser = headless false)
-    // Otherwise, use CONFIG.headless (which may have been temporarily modified by browser_options)
-    const targetHeadless = overrideHeadless !== undefined ? !overrideHeadless : CONFIG.headless;
+    const targetHeadless =
+      overrideHeadless !== undefined ? !overrideHeadless : getRuntimeConfig().headless;
 
     // Compare with current mode
     const needsChange = this.currentHeadlessMode !== targetHeadless;

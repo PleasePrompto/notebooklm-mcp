@@ -29,9 +29,13 @@
 
 export const Selectors = {
   chat: {
+    message: "chat-message",
+    userMessage: ".from-user-container",
     answerContainer: ".to-user-container",
     answerText: ".to-user-container .message-text-content",
-    latestAnswerText: ".to-user-container:last-child .message-text-content",
+    answerActions: ".to-user-container .message-actions",
+    jumpToBottomButton: "button.jump-to-bottom-button",
+    stopButton: "button.stop-button",
     /**
      * Chat textarea. The class is shared across locales; aria-labels are a
      * fallback for older builds where the class was different.
@@ -64,6 +68,36 @@ export const Selectors = {
       'button.submit-button[aria-label*="invia" i]',
       'button.submit-button[aria-label*="verzend" i]',
       'button.submit-button[aria-label*="送信" i]',
+    ],
+    optionsButton: [
+      'button[aria-label="Chat options"]',
+      'button[aria-label="Opciones de chat"]',
+      'button[aria-label="Optionen für den Chat"]',
+      'button[aria-label="Options du chat"]',
+      'button[aria-label="Opzioni chat"]',
+      'button[aria-label="Opções do chat"]',
+      'button[aria-label="Chatopties"]',
+      'button[aria-label="チャットのオプション"]',
+    ],
+    clearHistoryMenuItem: [
+      '[role="menuitem"]:has-text("Clear chat history")',
+      '[role="menuitem"]:has-text("Borrar el historial de chat")',
+      '[role="menuitem"]:has-text("Chatverlauf löschen")',
+      '[role="menuitem"]:has-text("Effacer l’historique du chat")',
+      '[role="menuitem"]:has-text("Cancella cronologia chat")',
+      '[role="menuitem"]:has-text("Limpar histórico do chat")',
+      '[role="menuitem"]:has-text("Chatgeschiedenis wissen")',
+      '[role="menuitem"]:has-text("チャット履歴を削除")',
+    ],
+    clearHistoryConfirmButton: [
+      'button:has-text("Clear")',
+      'button:has-text("Borrar")',
+      'button:has-text("Löschen")',
+      'button:has-text("Effacer")',
+      'button:has-text("Cancella")',
+      'button:has-text("Limpar")',
+      'button:has-text("Wissen")',
+      'button:has-text("削除")',
     ],
   },
 
@@ -313,7 +347,7 @@ export const Selectors = {
      * contains the Download item.
      */
     audioMoreMenuButton: [
-      "artifact-library-item button:has(mat-icon:text-is(\"more_vert\"))",
+      'artifact-library-item button:has(mat-icon:text-is("more_vert"))',
       'artifact-library-item button[aria-label*="mehr" i]',
       'artifact-library-item button[aria-label*="more" i]',
       'artifact-library-item button[aria-label*="plus" i]',

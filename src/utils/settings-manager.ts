@@ -11,6 +11,7 @@ import path from "path";
 import { CONFIG } from "../config.js";
 import { log } from "./logger.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 
 export type ProfileName = "minimal" | "standard" | "full";
 
@@ -24,6 +25,12 @@ const DEFAULT_SETTINGS: Settings = {
   profile: "full",
   disabledTools: [],
 };
+
+const settingsSchema = z.object({
+  profile: z.enum(["minimal", "standard", "full"]).default("full"),
+  disabledTools: z.array(z.string()).default([]),
+  customSettings: z.record(z.unknown()).optional(),
+});
 
 function isProfileName(value: string | undefined): value is ProfileName {
   return value === "minimal" || value === "standard" || value === "full";
@@ -76,7 +83,7 @@ export class SettingsManager {
         // Synchronous read keeps the constructor simple — settings are tiny
         // and we need them before any tool dispatch can happen.
         const data = readFileSync(this.settingsPath, "utf-8");
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+        return settingsSchema.parse({ ...DEFAULT_SETTINGS, ...JSON.parse(data) });
       }
     } catch (error) {
       log.warning(`⚠️  Failed to load settings: ${error}. Using defaults.`);
@@ -88,10 +95,19 @@ export class SettingsManager {
    * Save current settings to file
    */
   async saveSettings(newSettings: Partial<Settings>): Promise<void> {
-    this.settings = { ...this.settings, ...newSettings };
+    const previousSettings = this.settings;
+    const nextSettings = settingsSchema.parse({ ...this.settings, ...newSettings });
+    const temporaryPath = `${this.settingsPath}.${process.pid}.tmp`;
     try {
-      await fs.writeFile(this.settingsPath, JSON.stringify(this.settings, null, 2), "utf-8");
+      await fs.writeFile(temporaryPath, JSON.stringify(nextSettings, null, 2), {
+        encoding: "utf-8",
+        mode: 0o600,
+      });
+      await fs.rename(temporaryPath, this.settingsPath);
+      this.settings = nextSettings;
     } catch (error) {
+      this.settings = previousSettings;
+      await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
       throw new Error(`Failed to save settings: ${error}`, { cause: error });
     }
   }

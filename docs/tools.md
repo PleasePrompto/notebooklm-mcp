@@ -45,7 +45,7 @@ Ask a question against a notebook. Reuses an existing browser session when `sess
   "question": "How does the OAuth refresh token rotation work?",
   "answer": "[AI-GENERATED ...] The refresh token is rotated each ...\n\nSources:\n[1] auth-spec.pdf — ...",
   "session_id": "ses_…",
-  "notebook_url": "https://notebooklm.google.com/notebook/…",
+  "notebook_url": "https://notebook.google.com/notebook/…",
   "session_info": {
     "age_seconds": 12,
     "message_count": 3,
@@ -232,7 +232,7 @@ No parameters. Returns the full library.
     {
       "id": "nb_abcd",
       "name": "n8n Documentation",
-      "url": "https://notebooklm.google.com/notebook/…",
+      "url": "https://notebook.google.com/notebook/…",
       "description": "n8n core + builtin nodes",
       "topics": ["workflow automation", "n8n"],
       "use_cases": ["building n8n workflows"],

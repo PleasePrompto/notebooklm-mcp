@@ -44,7 +44,7 @@ import { ResourceHandlers } from "./resources/resource-handlers.js";
 import { SettingsManager } from "./utils/settings-manager.js";
 import { CliHandler } from "./utils/cli-handler.js";
 import { CONFIG, ensureDirectories } from "./config.js";
-import { startHttpTransport } from "./transport/http.js";
+import { startHttpTransport, type HttpTransportHandle } from "./transport/http.js";
 import { log } from "./utils/logger.js";
 
 /**
@@ -139,7 +139,6 @@ function extractProgressToken(
  * Main MCP Server Class
  */
 class NotebookLMMCPServer {
-  private server: Server;
   private authManager: AuthManager;
   private sessionManager: SessionManager;
   private library: NotebookLibrary;
@@ -147,46 +146,22 @@ class NotebookLMMCPServer {
   private resourceHandlers: ResourceHandlers;
   private settingsManager: SettingsManager;
   private toolDefinitions: Tool[];
+  private connectedServers = new Set<Server>();
+  private httpHandle?: HttpTransportHandle;
 
   constructor() {
-    // Initialize MCP Server
-    this.server = new Server(
-      {
-        name: "notebooklm-mcp",
-        version: "2.0.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-          resources: {},
-          resourceTemplates: {},
-          prompts: {},
-          completions: {}, // Required for completion/complete support
-          logging: {},
-        },
-        // MCP-spec server instructions (clients merge into the system prompt).
-        // Use these for cross-tool workflow guidance — do not duplicate
-        // information that already lives in individual tool descriptions.
-        instructions: SERVER_INSTRUCTIONS,
-      }
-    );
-
-    // Initialize managers
+    // Initialize managers shared by all MCP protocol sessions.
     this.authManager = new AuthManager();
     this.sessionManager = new SessionManager(this.authManager);
     this.library = new NotebookLibrary();
     this.settingsManager = new SettingsManager();
 
-    // Initialize handlers
     this.toolHandlers = new ToolHandlers(this.sessionManager, this.authManager, this.library);
     this.resourceHandlers = new ResourceHandlers(this.library);
 
-    // Build and Filter tool definitions
     const allTools = buildToolDefinitions(this.library) as Tool[];
     this.toolDefinitions = this.settingsManager.filterTools(allTools);
 
-    // Setup handlers
-    this.setupHandlers();
     this.setupShutdownHandlers();
 
     const activeSettings = this.settingsManager.getEffectiveSettings();
@@ -197,15 +172,43 @@ class NotebookLMMCPServer {
     log.info(`  Profile: ${activeSettings.profile} (${this.toolDefinitions.length} tools active)`);
   }
 
+  private createProtocolServer(): Server {
+    const server = new Server(
+      {
+        name: "notebooklm-mcp",
+        version: "2.0.0",
+      },
+      {
+        capabilities: {
+          tools: {},
+          resources: {},
+          prompts: {},
+          completions: {}, // Required for completion/complete support
+          logging: {},
+        },
+        // MCP-spec server instructions (clients merge into the system prompt).
+        // Use these for cross-tool workflow guidance — do not duplicate
+        // information that already lives in individual tool descriptions.
+        instructions: SERVER_INSTRUCTIONS,
+      }
+    );
+    this.setupHandlers(server);
+    this.connectedServers.add(server);
+    server.onclose = () => {
+      this.connectedServers.delete(server);
+    };
+    return server;
+  }
+
   /**
    * Setup MCP request handlers
    */
-  private setupHandlers(): void {
+  private setupHandlers(server: Server): void {
     // Register Resource Handlers (Resources, Templates, Completions)
-    this.resourceHandlers.registerHandlers(this.server);
+    this.resourceHandlers.registerHandlers(server);
 
     // List available tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
       log.info("📋 [MCP] list_tools request received");
       return {
         tools: this.toolDefinitions,
@@ -213,28 +216,34 @@ class NotebookLMMCPServer {
     });
 
     // Handle tool calls
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const { name, arguments: args } = request.params;
       const progressToken = extractProgressToken(args);
 
       log.info(`🔧 [MCP] Tool call: ${name}`);
-      if (progressToken) {
+      if (progressToken !== undefined) {
         log.info(`  📊 Progress token: ${progressToken}`);
       }
 
       // Create progress callback function
       const sendProgress = async (message: string, progress?: number, total?: number) => {
-        if (progressToken) {
-          await this.server.notification({
-            method: "notifications/progress",
-            params: {
-              progressToken,
-              message,
-              ...(progress !== undefined && { progress }),
-              ...(total !== undefined && { total }),
-            },
-          });
-          log.dim(`  📊 Progress: ${message}`);
+        if (progressToken !== undefined) {
+          try {
+            await extra.sendNotification({
+              method: "notifications/progress",
+              params: {
+                progressToken,
+                message,
+                ...(progress !== undefined && { progress }),
+                ...(total !== undefined && { total }),
+              },
+            });
+            log.dim(`  📊 Progress: ${message}`);
+          } catch (error) {
+            // Progress is best-effort. Losing an Inspector/client connection
+            // must not cancel authentication or another long operation.
+            log.warning(`⚠️  Could not deliver progress notification: ${error}`);
+          }
         }
       };
 
@@ -409,6 +418,7 @@ class NotebookLMMCPServer {
                   ),
                 },
               ],
+              isError: true,
             };
         }
 
@@ -420,6 +430,7 @@ class NotebookLMMCPServer {
               text: JSON.stringify(result, null, 2),
             },
           ],
+          isError: result.success === false,
         };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -439,6 +450,7 @@ class NotebookLMMCPServer {
               ),
             },
           ],
+          isError: true,
         };
       }
     });
@@ -468,8 +480,15 @@ class NotebookLMMCPServer {
       watchdog.unref();
 
       try {
+        if (this.httpHandle) {
+          await this.httpHandle.close();
+          this.httpHandle = undefined;
+        }
         await this.toolHandlers.cleanup();
-        await this.server.close();
+        for (const server of Array.from(this.connectedServers)) {
+          await server.close();
+        }
+        this.connectedServers.clear();
         log.success("✅ Shutdown complete");
         clearTimeout(watchdog);
         process.exit(0);
@@ -517,17 +536,31 @@ class NotebookLMMCPServer {
     log.info("");
 
     if (options.kind === "http") {
-      await startHttpTransport({
+      this.httpHandle = await startHttpTransport({
         port: options.port,
         host: options.host,
+        authToken: process.env.NOTEBOOKLM_HTTP_AUTH_TOKEN,
+        allowedOrigins: parseCsvEnv(process.env.NOTEBOOKLM_ALLOWED_ORIGINS),
+        allowedHosts: parseCsvEnv(process.env.NOTEBOOKLM_ALLOWED_HOSTS),
+        maxBodyBytes: parsePositiveIntegerEnv(
+          process.env.NOTEBOOKLM_HTTP_MAX_BODY_BYTES,
+          1024 * 1024
+        ),
         connect: async (transport) => {
-          await this.server.connect(transport);
+          const server = this.createProtocolServer();
+          try {
+            await server.connect(transport);
+          } catch (error) {
+            this.connectedServers.delete(server);
+            throw error;
+          }
         },
       });
       log.success("✅ MCP Server connected via Streamable HTTP");
     } else {
       const transport = new StdioServerTransport();
-      await this.server.connect(transport);
+      const server = this.createProtocolServer();
+      await server.connect(transport);
       log.success("✅ MCP Server connected via stdio");
     }
 
@@ -546,10 +579,29 @@ class NotebookLMMCPServer {
 
 type TransportOptions = { kind: "stdio" } | { kind: "http"; port: number; host?: string };
 
+function parseCsvEnv(value: string | undefined): string[] | undefined {
+  if (!value) return undefined;
+  const values = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : undefined;
+}
+
+function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function parseTransportOptions(argv: readonly string[]): TransportOptions {
-  let kind: "stdio" | "http" = "stdio";
-  let port = 3000;
-  let host: string | undefined;
+  const envTransport = process.env.NOTEBOOKLM_TRANSPORT;
+  let kind: "stdio" | "http" =
+    envTransport === "http" || envTransport === "stdio" ? envTransport : "stdio";
+  const envPort = process.env.NOTEBOOKLM_PORT;
+  let port = envPort ? Number.parseInt(envPort, 10) : 3000;
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) port = 3000;
+  let host: string | undefined = process.env.NOTEBOOKLM_HOST;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -583,18 +635,12 @@ function parseTransportOptions(argv: readonly string[]): TransportOptions {
     }
   }
 
-  // Env-var fallbacks for hosted deployments.
-  const envTransport = process.env.NOTEBOOKLM_TRANSPORT;
-  if (envTransport === "http" || envTransport === "stdio") kind = envTransport;
-  const envPort = process.env.NOTEBOOKLM_PORT;
-  if (envPort) {
-    const parsed = Number.parseInt(envPort, 10);
-    if (Number.isFinite(parsed)) port = parsed;
+  if (kind === "http") {
+    if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+      throw new Error(`Invalid HTTP port: ${port}. Expected an integer from 1 to 65535.`);
+    }
+    return { kind, port, host };
   }
-  const envHost = process.env.NOTEBOOKLM_HOST;
-  if (envHost) host = envHost;
-
-  if (kind === "http") return { kind, port, host };
   return { kind: "stdio" };
 }
 
@@ -616,9 +662,9 @@ async function main() {
   const account = getRequestedAccount();
   if (account) {
     applyAccountToConfig(CONFIG, account);
-    ensureDirectories();
     log.info(`👤 Account profile active: ${account}`);
   }
+  ensureDirectories();
 
   // Print banner
   console.error("╔══════════════════════════════════════════════════════════╗");

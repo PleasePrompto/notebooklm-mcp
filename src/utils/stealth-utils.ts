@@ -12,7 +12,7 @@
  */
 
 import type { Page } from "patchright";
-import { CONFIG } from "../config.js";
+import { getRuntimeConfig } from "../config.js";
 
 // ============================================================================
 // Helper Functions
@@ -70,10 +70,11 @@ export function gaussian(mean: number, stdDev: number): number {
  * @param maxMs Maximum delay in milliseconds (default: from CONFIG)
  */
 export async function randomDelay(minMs?: number, maxMs?: number): Promise<void> {
-  minMs = minMs ?? CONFIG.minDelayMs;
-  maxMs = maxMs ?? CONFIG.maxDelayMs;
+  const config = getRuntimeConfig();
+  minMs = minMs ?? config.minDelayMs;
+  maxMs = maxMs ?? config.maxDelayMs;
 
-  if (!CONFIG.stealthEnabled || !CONFIG.stealthRandomDelays) {
+  if (!config.stealthEnabled || !config.stealthRandomDelays) {
     // Fixed delay (average)
     const target = minMs === maxMs ? minMs : (minMs + maxMs) / 2;
     if (target > 0) {
@@ -120,13 +121,14 @@ export async function humanType(
     withTypos?: boolean;
   } = {}
 ): Promise<void> {
-  if (!CONFIG.stealthEnabled || !CONFIG.stealthHumanTyping) {
+  const config = getRuntimeConfig();
+  if (!config.stealthEnabled || !config.stealthHumanTyping) {
     // Fast typing without stealth
     await page.fill(selector, text);
     return;
   }
 
-  const wpm = options.wpm ?? randomInt(CONFIG.typingWpmMin, CONFIG.typingWpmMax);
+  const wpm = options.wpm ?? randomInt(config.typingWpmMin, config.typingWpmMax);
   const withTypos = options.withTypos ?? true;
 
   // Calculate average delay per character (in ms)
@@ -144,32 +146,26 @@ export async function humanType(
   await randomDelay(20, 60);
 
   // Type each character
-  let currentText = "";
-  let i = 0;
-
-  while (i < text.length) {
+  for (let i = 0; i < text.length; i++) {
     const char = text[i];
 
     // Simulate very rare typo (0.3% chance) and shorter correction
     if (withTypos && Math.random() < 0.003 && i > 0) {
       // Type wrong character
       const wrongChar = randomChar();
-      currentText += wrongChar;
-      await page.fill(selector, currentText);
+      await page.keyboard.insertText(wrongChar);
 
       // Shorter notice window for faster typing
       const noticeDelay = randomFloat(avgDelayMs * 0.6, avgDelayMs * 1.1);
       await sleep(noticeDelay);
 
       // Backspace
-      currentText = currentText.slice(0, -1);
-      await page.fill(selector, currentText);
+      await page.keyboard.press("Backspace");
       await randomDelay(20, 60);
     }
 
     // Type correct character
-    currentText += char;
-    await page.fill(selector, currentText);
+    await page.keyboard.insertText(char);
 
     // Variable delay between characters – tuned for faster but still human-like typing
     let delay: number;
@@ -186,7 +182,6 @@ export async function humanType(
     }
 
     await sleep(delay);
-    i++;
   }
 
   // Small delay after finishing typing
@@ -212,11 +207,12 @@ export async function randomMouseMovement(
   targetY?: number,
   steps?: number
 ): Promise<void> {
-  if (!CONFIG.stealthEnabled || !CONFIG.stealthMouseMovements) {
+  const config = getRuntimeConfig();
+  if (!config.stealthEnabled || !config.stealthMouseMovements) {
     return;
   }
 
-  const viewport = page.viewportSize() || CONFIG.viewport;
+  const viewport = page.viewportSize() || config.viewport;
 
   targetX = targetX ?? randomInt(100, viewport.width - 100);
   targetY = targetY ?? randomInt(100, viewport.height - 100);
@@ -269,7 +265,8 @@ export async function realisticClick(
   selector: string,
   withMouseMovement: boolean = true
 ): Promise<void> {
-  if (!CONFIG.stealthEnabled || !CONFIG.stealthMouseMovements) {
+  const config = getRuntimeConfig();
+  if (!config.stealthEnabled || !config.stealthMouseMovements) {
     await page.click(selector);
     return;
   }
@@ -325,7 +322,8 @@ export async function smoothScroll(
     amount = -amount;
   }
 
-  if (!CONFIG.stealthEnabled || !CONFIG.stealthMouseMovements) {
+  const config = getRuntimeConfig();
+  if (!config.stealthEnabled || !config.stealthMouseMovements) {
     await page.evaluate((scrollAmount) => {
       window.scrollBy({ top: scrollAmount, behavior: "auto" });
     }, amount);
@@ -359,7 +357,8 @@ export async function smoothScroll(
  * @param wpm Reading speed in words per minute (default: random 200-250)
  */
 export async function readingPause(textLength: number, wpm?: number): Promise<void> {
-  if (!CONFIG.stealthEnabled || !CONFIG.stealthRandomDelays) {
+  const config = getRuntimeConfig();
+  if (!config.stealthEnabled || !config.stealthRandomDelays) {
     return;
   }
 
@@ -391,11 +390,12 @@ export async function readingPause(textLength: number, wpm?: number): Promise<vo
  * @param iterations Number of small movements (default: 3)
  */
 export async function randomMouseJitter(page: Page, iterations: number = 3): Promise<void> {
-  if (!CONFIG.stealthEnabled || !CONFIG.stealthMouseMovements) {
+  const config = getRuntimeConfig();
+  if (!config.stealthEnabled || !config.stealthMouseMovements) {
     return;
   }
 
-  const viewport = page.viewportSize() || CONFIG.viewport;
+  const viewport = page.viewportSize() || config.viewport;
 
   for (let i = 0; i < iterations; i++) {
     const targetX = randomInt(0, viewport.width);
@@ -416,7 +416,8 @@ export async function randomMouseJitter(page: Page, iterations: number = 3): Pro
  * @param selector CSS selector of element to hover
  */
 export async function hoverElement(page: Page, selector: string): Promise<void> {
-  if (!CONFIG.stealthEnabled || !CONFIG.stealthMouseMovements) {
+  const config = getRuntimeConfig();
+  if (!config.stealthEnabled || !config.stealthMouseMovements) {
     await page.hover(selector);
     return;
   }
@@ -447,7 +448,8 @@ export async function hoverElement(page: Page, selector: string): Promise<void> 
  * @param page Playwright page instance
  */
 export async function simulateReadingPage(page: Page): Promise<void> {
-  if (!CONFIG.stealthEnabled || !CONFIG.stealthRandomDelays) {
+  const config = getRuntimeConfig();
+  if (!config.stealthEnabled || !config.stealthRandomDelays) {
     return;
   }
 
