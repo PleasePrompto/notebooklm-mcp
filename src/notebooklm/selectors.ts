@@ -133,16 +133,22 @@ export const Selectors = {
       'button[aria-label*="adicionar fonte" i]',
       'button[aria-label*="bron toevoegen" i]',
       'button[aria-label*="ソースを追加" i]',
+      'button[aria-label*="kaynak ekle" i]',
     ],
     /**
      * Real Material modal. `[role="dialog"]` is set by Angular synchronously
      * the moment the modal mounts — race-free against the `.mdc-dialog--open`
      * animation class and resistant to Material-UI version bumps. Avoid
      * `.cdk-overlay-pane` (matches every dropdown / emoji picker / menu).
+     *
+     * Scoped to `.mat-mdc-dialog-container`: NotebookLM keeps a hidden emoji
+     * picker in the DOM that also carries `role="dialog"` and precedes the real
+     * modal, so a bare `[role="dialog"]` + `.first()` resolved to the invisible
+     * palette and every overlay wait timed out.
      */
-    overlayPane: '[role="dialog"]',
-    overlayInput: '[role="dialog"] input[type="text"]:not([readonly])',
-    overlayTextarea: '[role="dialog"] textarea',
+    overlayPane: '.mat-mdc-dialog-container[role="dialog"]',
+    overlayInput: '.mat-mdc-dialog-container[role="dialog"] input[type="text"]:not([readonly])',
+    overlayTextarea: '.mat-mdc-dialog-container[role="dialog"] textarea',
     /**
      * Source-type buttons in the Add-source overlay. Google ships them
      * *without* aria-labels — the only stable, language-agnostic anchor is
@@ -212,6 +218,7 @@ export const Selectors = {
       'button.mdc-button--raised:has-text("Inserisci")',
       'button.mdc-button--raised:has-text("Invoegen")',
       'button.mdc-button--raised:has-text("挿入")',
+      'button.mdc-button--raised:has-text("Ekle")',
       'button:has-text("Insert")',
       'button:has-text("Einfügen")',
       'button:has-text("Hinzufügen")',
@@ -228,6 +235,9 @@ export const Selectors = {
       'button:has-text("Toevoegen")',
       'button:has-text("挿入")',
       'button:has-text("追加")',
+      // Exact match on purpose: `has-text` is a substring match and would also
+      // hit the Turkish "Kaynak ekle" (add source) button.
+      'button:text-is("Ekle")',
       'button:has-text("Add")',
       'button:has-text("Submit")',
       'button[type="submit"]',

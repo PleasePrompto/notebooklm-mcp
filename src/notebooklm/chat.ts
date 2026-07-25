@@ -269,6 +269,22 @@ export async function waitForStableAnswer(
       const isPrior = ignoreSet.has(candidate);
 
       if (!isEcho && !isPrior) {
+        // Gemini streams its reasoning trace into the same node before the
+        // answer arrives. That prose is long, prose-shaped and stable for
+        // several polls, so `isPlaceholder` misses it and the streak counter
+        // returns the model's thoughts as the final answer. The two phases are
+        // only distinguishable structurally, so gate on the DOM.
+        if (
+          !isErrorMessage(candidate) &&
+          !isRateLimitText(candidate) &&
+          (await isStillThinking(page))
+        ) {
+          stableStreak = 0;
+          lastSeen = null;
+          await safeSleep(page, Math.min(pollIntervalMs, 400));
+          continue;
+        }
+
         // Loading placeholders ("Parsing the data…", "Thinking…", …) are
         // stable while Gemini is still working — the old code locked on to
         // them and returned them as the final answer. Filter them out.
@@ -301,6 +317,26 @@ export async function waitForStableAnswer(
   }
 
   return null;
+}
+
+/**
+ * Is the latest turn still Gemini's reasoning trace rather than the answer?
+ *
+ * The reasoning phase renders `<thinking-animation>` or a plain
+ * `<div class="md3-body-text">` inside `.message-text-content`; the finished
+ * answer replaces it with `<labs-tailwind-doc-viewer>`. The wording is both
+ * locale- and model-dependent, the DOM shape is not.
+ */
+async function isStillThinking(page: Page): Promise<boolean> {
+  return page
+    .locator(Selectors.chat.latestAnswerText)
+    .last()
+    .evaluate(
+      (el) =>
+        !el.querySelector("labs-tailwind-doc-viewer") &&
+        !!(el.querySelector(".md3-body-text") || el.querySelector("thinking-animation"))
+    )
+    .catch(() => false);
 }
 
 /**
