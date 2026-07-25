@@ -206,6 +206,15 @@ async function openAddSourceOverlay(page: Page): Promise<void> {
     log.warning(`  ⚠️  Add-source button click failed (${err}), trying ?addSource=true URL fallback`);
   }
 
+  // The click frequently lands even though Playwright reports a hit-target
+  // timeout: the dialog's own backdrop covers the button while the actionability
+  // check retries. Re-check here, otherwise the `addSource=true` guard below
+  // sees the URL the click already navigated to and throws for nothing.
+  if (await isOverlayVisible(page)) {
+    log.info("  ✅ Add-source dialog opened despite click timeout");
+    return;
+  }
+
   // URL fallback — useful when the sidebar button is hidden or covered.
   const url = page.url();
   if (url && /\/notebook\//.test(url) && !url.includes("addSource=true")) {
