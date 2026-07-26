@@ -39,6 +39,7 @@ import {
 } from "../notebooklm/audio.js";
 import { CONFIG } from "../config.js";
 import { log } from "../utils/logger.js";
+import { isNotebookAppUrl } from "../utils/notebook-domain.js";
 import type { SessionInfo, ProgressCallback } from "../types.js";
 import { RateLimitError } from "../errors.js";
 
@@ -285,16 +286,8 @@ export class BrowserSession {
     }
   }
 
-  private getOriginFromUrl(url: string): string | null {
-    try {
-      return new URL(url).origin;
-    } catch {
-      return null;
-    }
-  }
-
   /**
-   * Safely restore sessionStorage when the page is on the expected origin
+   * Safely restore sessionStorage once the page is on a notebook host
    */
   private async restoreSessionStorage(
     sessionData: Record<string, string>,
@@ -305,21 +298,20 @@ export class BrowserSession {
       return;
     }
 
-    const targetOrigin = this.getOriginFromUrl(this.notebookUrl);
-    if (!targetOrigin) {
-      log.warning(`  ⚠️  Unable to determine target origin for sessionStorage restore`);
-      return;
-    }
-
     let restored = false;
 
+    // NotebookLM resolves to one of two hosts depending on the account
+    // (notebooklm.google.com, or the notebook.google.com rebrand alias — some
+    // Workspace tenants land there). After Google's redirect the page can settle
+    // on a different host than the stored notebook URL, so restore sessionStorage
+    // once the page is on EITHER notebook host instead of requiring an exact
+    // origin match — otherwise a Workspace session never gets its state restored.
     const applyToPage = async (): Promise<boolean> => {
       if (!this.page) {
         return false;
       }
 
-      const currentOrigin = this.getOriginFromUrl(this.page.url());
-      if (currentOrigin !== targetOrigin) {
+      if (!isNotebookAppUrl(this.page.url())) {
         return false;
       }
 
