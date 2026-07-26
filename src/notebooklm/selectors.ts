@@ -30,6 +30,8 @@
 export const Selectors = {
   chat: {
     answerContainer: ".to-user-container",
+    /** The user's own turn. Used to anchor extraction to a specific question. */
+    questionContainer: ".from-user-container",
     answerText: ".to-user-container .message-text-content",
     latestAnswerText: ".to-user-container:last-child .message-text-content",
     /**
@@ -313,7 +315,7 @@ export const Selectors = {
      * contains the Download item.
      */
     audioMoreMenuButton: [
-      "artifact-library-item button:has(mat-icon:text-is(\"more_vert\"))",
+      'artifact-library-item button:has(mat-icon:text-is("more_vert"))',
       'artifact-library-item button[aria-label*="mehr" i]',
       'artifact-library-item button[aria-label*="more" i]',
       'artifact-library-item button[aria-label*="plus" i]',

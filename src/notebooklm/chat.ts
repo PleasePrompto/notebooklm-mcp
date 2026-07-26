@@ -181,6 +181,37 @@ function isPlaceholder(text: string): boolean {
   return false;
 }
 
+/**
+ * True while NotebookLM is still generating the current turn.
+ *
+ * NotebookLM disables the query textarea (placeholder switches to
+ * "Responding…") for the whole time Gemini works, and re-enables it the moment
+ * the turn completes — an exact, language-agnostic "still working" signal.
+ *
+ * Needed because current NotebookLM streams Gemini's *reasoning trace* into the
+ * same `.message-text-content` node as the answer. The trace is ordinary prose
+ * ("Initiating the Analysis / I'm now diving into the user's request…"), so
+ * `isPlaceholder()` misses it, and it sits unchanged far longer than
+ * `stablePolls` × `pollIntervalMs` — the stability detector would otherwise
+ * return the reasoning as the final answer.
+ *
+ * Anchors on the class-based primary selector only. The page also mounts a
+ * "Search the web for new sources" textarea that sits *earlier* in the DOM, so
+ * matching the whole `queryInput` alternation and taking `.first()` can latch
+ * onto the wrong box.
+ *
+ * Fails open (returns `false`) when the textarea can't be found, so a future UI
+ * change degrades to the previous stability-only behaviour rather than hanging.
+ */
+async function isGenerating(page: Page): Promise<boolean> {
+  const [primaryQueryInput] = Selectors.chat.queryInput;
+  try {
+    return await page.locator(primaryQueryInput).first().isDisabled({ timeout: 1_000 });
+  } catch {
+    return false;
+  }
+}
+
 function isErrorMessage(text: string): boolean {
   const lower = text.toLowerCase();
   return ERROR_SNIPPETS.some((s) => lower.includes(s));
@@ -202,6 +233,18 @@ export interface AskOptions {
   ignoreTexts?: string[];
   /** How many consecutive identical polls count as "answer settled". Default 3. */
   stablePolls?: number;
+  /**
+   * Streak at which text is accepted even while the page still reports that it
+   * is generating. Guards against a UI change breaking the "generating" probe.
+   * Default 20 (≈15 s at the default cadence).
+   */
+  stableFallbackPolls?: number;
+  /**
+   * Polls to spend waiting for the question-anchored read to match before
+   * falling back to "latest answer container". Bounded so an unmatched anchor
+   * degrades instead of blocking to `timeoutMs`. Default 40 (≈30 s).
+   */
+  newTurnGracePolls?: number;
 }
 
 /**
@@ -234,6 +277,8 @@ export async function waitForStableAnswer(
     pollIntervalMs = 750,
     ignoreTexts = [],
     stablePolls = 3,
+    stableFallbackPolls = 20,
+    newTurnGracePolls = 40,
   } = options;
 
   const deadline = Date.now() + timeoutMs;
@@ -258,7 +303,14 @@ export async function waitForStableAnswer(
 
     let candidate: string | null = null;
     try {
-      candidate = await readLatestAnswer(page);
+      // Prefer the question-anchored read; it is the only one that guarantees
+      // the text belongs to *this* turn. Fall back to "latest container" only
+      // after the grace window, so an unmatched anchor degrades instead of
+      // blocking to `timeoutMs`.
+      candidate = question ? await readAnswerForQuestion(page, question) : null;
+      if (!candidate && (!question || pollCount > newTurnGracePolls)) {
+        candidate = await readLatestAnswer(page);
+      }
     } catch (err) {
       if (isRecoverable(err)) throw err;
       // Non-fatal extraction blip — try again next tick.
@@ -287,7 +339,15 @@ export async function waitForStableAnswer(
 
         if (candidate === lastSeen) {
           stableStreak++;
-          if (stableStreak >= stablePolls) {
+          // Stable text is only final once the turn itself has finished —
+          // otherwise a settled reasoning trace reads as a settled answer.
+          // The streak ceiling is a safety valve: if the "generating" probe ever
+          // reads true forever (UI change), fall back to stability alone rather
+          // than blocking until `timeoutMs`.
+          if (stableStreak >= stableFallbackPolls) {
+            return candidate;
+          }
+          if (stableStreak >= stablePolls && !(await isGenerating(page))) {
             return candidate;
           }
         } else {
@@ -304,15 +364,78 @@ export async function waitForStableAnswer(
 }
 
 /**
+ * Read the answer belonging to a *specific* question.
+ *
+ * "Last answer container in the DOM" is not a reliable handle on the current
+ * turn: NotebookLM virtualises the chat list, so the rendered window depends on
+ * scroll position and can exclude the newest turn entirely. Reading it that way
+ * returns an unrelated earlier answer — observed repeatedly (asked about the
+ * lamps of the ten virgins, got an answer about hope).
+ *
+ * Instead, locate the user's own turn matching this question and take the first
+ * answer container after it in document order. Returns `null` when the turn is
+ * not currently rendered, which the caller treats as "keep waiting".
+ */
+async function readAnswerForQuestion(page: Page, question: string): Promise<string | null> {
+  const probe = question.trim().replace(/\s+/g, " ").slice(0, 60).toLowerCase();
+  if (!probe) return null;
+
+  try {
+    const raw = await page.evaluate(
+      ({ probeText, questionSel, answerSel, textSel }) => {
+        const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+        const nodes = Array.from(document.querySelectorAll(`${questionSel}, ${answerSel}`));
+
+        let anchor = -1;
+        nodes.forEach((node, i) => {
+          if (
+            node.matches(questionSel) &&
+            norm((node as HTMLElement).innerText).includes(probeText)
+          ) {
+            anchor = i; // keep the last match — the most recent ask
+          }
+        });
+        if (anchor === -1) return null;
+
+        for (let i = anchor + 1; i < nodes.length; i++) {
+          if (nodes[i].matches(answerSel)) {
+            const body = nodes[i].querySelector(textSel) as HTMLElement | null;
+            return body ? body.innerText : null;
+          }
+        }
+        return null;
+      },
+      {
+        probeText: probe,
+        questionSel: Selectors.chat.questionContainer,
+        answerSel: Selectors.chat.answerContainer,
+        textSel: ".message-text-content",
+      }
+    );
+
+    if (!raw) return null;
+    const cleaned = sanitizeAnswer(raw);
+    return cleaned.length > 0 ? cleaned : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read the latest answer container's text and strip UI-control leakage.
- * Uses `:last-child` so we always target the most recent turn.
+ *
+ * Deliberately uses the unqualified `answerText` selector, NOT
+ * `latestAnswerText`. The latter carries a `:last-child` qualifier, which keeps
+ * only containers that happen to be their parent's final child — the newest
+ * turn is often not, because sibling nodes (action rows, citation chrome) mount
+ * alongside it. `.last()` then silently falls back to some *older* turn, so a
+ * completely unrelated earlier answer is returned as if it were this turn's.
+ * Taking the last match of all answer containers is the actual "most recent
+ * turn" and matches what the page shows.
  */
 async function readLatestAnswer(page: Page): Promise<string | null> {
   try {
-    const raw = await page
-      .locator(Selectors.chat.latestAnswerText)
-      .last()
-      .innerText({ timeout: 2_000 });
+    const raw = await page.locator(Selectors.chat.answerText).last().innerText({ timeout: 2_000 });
     const cleaned = sanitizeAnswer(raw);
     return cleaned.length > 0 ? cleaned : null;
   } catch {
