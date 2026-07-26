@@ -30,8 +30,8 @@
 export const Selectors = {
   chat: {
     answerContainer: ".to-user-container",
-    answerText: ".to-user-container .message-text-content",
-    latestAnswerText: ".to-user-container:last-child .message-text-content",
+    answerText: ".to-user-container .message-text-content labs-tailwind-doc-viewer",
+    latestAnswerText: ".to-user-container .message-text-content labs-tailwind-doc-viewer",
     /**
      * Chat textarea. The class is shared across locales; aria-labels are a
      * fallback for older builds where the class was different.
@@ -394,6 +394,7 @@ export const Selectors = {
     "keep_pin",
     "copy_all",
     "arrow_forward",
+    "Thoughts",
   ]),
 } as const;
 
