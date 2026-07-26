@@ -18,6 +18,7 @@ import { existsSync } from "fs";
 import path from "path";
 import { CONFIG, NOTEBOOKLM_AUTH_URL } from "../config.js";
 import { log } from "../utils/logger.js";
+import { isNotebookAppUrl } from "../utils/notebook-domain.js";
 import {
   getPreferredChannel,
   isChannelFailure,
@@ -278,7 +279,9 @@ export class AuthManager {
    * Perform interactive login
    * User will see a browser window and login manually
    *
-   * SIMPLE & RELIABLE: Just wait for URL to change to notebooklm.google.com
+   * SIMPLE & RELIABLE: Just wait for the URL to land on the notebook app on
+   * either host — notebooklm.google.com OR the notebook.google.com rebrand alias
+   * (see isNotebookAppUrl; some Workspace accounts resolve to notebook.google.com).
    */
   async performLogin(page: Page, sendProgress?: ProgressCallback): Promise<boolean> {
     try {
@@ -320,7 +323,7 @@ export class AuthManager {
           }
 
           // ✅ SIMPLE: Check if we're on NotebookLM (any path!)
-          if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+          if (isNotebookAppUrl(currentUrl)) {
             await sendProgress?.("Login successful! NotebookLM detected!", 9, 10);
             log.success("✅ Login successful! NotebookLM URL detected.");
             log.success(`✅ Current URL: ${currentUrl}`);
@@ -344,7 +347,7 @@ export class AuthManager {
 
       // Timeout reached - final check
       const currentUrl = page.url();
-      if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+      if (isNotebookAppUrl(currentUrl)) {
         await sendProgress?.("Login successful (detected on timeout check)!", 9, 10);
         log.success("✅ Login successful (detected on timeout check)");
         return true;
@@ -491,7 +494,7 @@ export class AuthManager {
       } else {
         log.error(`  ❌ Stuck on Google accounts page: ${currentUrl.slice(0, 80)}...`);
       }
-    } else if (currentUrl.includes("notebooklm.google.com")) {
+    } else if (isNotebookAppUrl(currentUrl)) {
       log.warning("  ⚠️  Reached NotebookLM but couldn't detect successful login");
       log.info("  💡 This might be a timing issue - try again");
     } else {
@@ -508,7 +511,7 @@ export class AuthManager {
   /**
    * Wait for Google to redirect to NotebookLM after successful login (SIMPLE & RELIABLE)
    *
-   * Just checks if URL changes to notebooklm.google.com - no complex UI element searching!
+   * Just checks if the URL lands on the notebook app (either host) - no complex UI element searching!
    * Matches the simplified approach used in performLogin().
    */
   private async waitForRedirectAfterLogin(page: Page, deadline: number): Promise<boolean> {
@@ -519,7 +522,7 @@ export class AuthManager {
         const currentUrl = page.url();
 
         // Simple check: Are we on NotebookLM?
-        if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+        if (isNotebookAppUrl(currentUrl)) {
           log.success("    ✅ NotebookLM URL detected!");
           // Short wait to ensure page is loaded
           await page.waitForTimeout(2000);
@@ -539,7 +542,7 @@ export class AuthManager {
   /**
    * Wait for NotebookLM to load (SIMPLE & RELIABLE)
    *
-   * Just checks if URL starts with notebooklm.google.com - no complex UI element searching!
+   * Just checks if the URL is on the notebook app (either host) - no complex UI element searching!
    * Matches the simplified approach used in performLogin().
    */
   private async waitForNotebook(page: Page, timeoutMs: number): Promise<boolean> {
@@ -550,7 +553,7 @@ export class AuthManager {
         const currentUrl = page.url();
 
         // Simple check: Are we on NotebookLM?
-        if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+        if (isNotebookAppUrl(currentUrl)) {
           log.success("  ✅ NotebookLM URL detected");
           return true;
         }
