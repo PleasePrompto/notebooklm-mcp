@@ -33,6 +33,40 @@ export const Selectors = {
     answerText: ".to-user-container .message-text-content",
     latestAnswerText: ".to-user-container:last-child .message-text-content",
     /**
+     * Gemini 2.5 renders its reasoning block as a dedicated component that is a
+     * DIRECT-CHILD SIBLING of the answer node inside `.message-text-content`
+     * (issue #74). Google renames it over time — `thinking-chain-view` /
+     * `.thinking-chain` (older builds) → `thinking-animation` /
+     * `.thinking-message` (2026-07 build) — so we key on BOTH an explicit list
+     * AND a family pattern (`reasoningClassPattern`). Keep this a *list*:
+     * auto-discovery showed the name is a moving target.
+     */
+    reasoningNode: [
+      "thinking-animation",
+      "thinking-animation-container",
+      ".thinking-message",
+      "thinking-chain-view",
+      ".thinking-chain",
+    ],
+    /** Family pattern → catches future renames without a code change. Built into /…/i. */
+    reasoningClassPattern: "thinking[-_]",
+    /**
+     * The component a *settled* answer is rendered into. Used as a POSITIVE
+     * signal (issue #74): text that came out of this element is the reply, so
+     * the shape-based reasoning heuristic must not veto it — a real answer that
+     * opens "I am thrilled to…" would otherwise be discarded as a thought.
+     * Held in 33/33 settled captures of the 2026-07 audit; a list because
+     * Google renames these components (see `reasoningNode`).
+     */
+    answerViewerNode: ["labs-tailwind-doc-viewer"],
+    /**
+     * Language-agnostic Material-Symbols toggle on the collapsible reasoning
+     * header. Used to identify + strip a leaked collapsed header (issue #74
+     * forms 2/3) WITHOUT any localized header word. Subset of
+     * `uiControlLabels`.
+     */
+    reasoningToggleIcons: ["expand_more", "expand_less"] as const,
+    /**
      * Chat textarea. The class is shared across locales; aria-labels are a
      * fallback for older builds where the class was different.
      */
@@ -313,7 +347,7 @@ export const Selectors = {
      * contains the Download item.
      */
     audioMoreMenuButton: [
-      "artifact-library-item button:has(mat-icon:text-is(\"more_vert\"))",
+      'artifact-library-item button:has(mat-icon:text-is("more_vert"))',
       'artifact-library-item button[aria-label*="mehr" i]',
       'artifact-library-item button[aria-label*="more" i]',
       'artifact-library-item button[aria-label*="plus" i]',
@@ -396,6 +430,20 @@ export const Selectors = {
     "arrow_forward",
   ]),
 } as const;
+
+/**
+ * Localization escape-hatch for a leaked *collapsed reasoning header* (issue #74
+ * forms 2/3) on builds where the header is plain text with NO adjacent toggle
+ * icon and NO following planning prose — the only case the icon-anchored strip
+ * and the shape-based fallback both miss.
+ *
+ * EMPTY BY DEFAULT: the icon-anchored strip (`sanitizeAnswer` in `chat.ts`)
+ * handles the common case locale-independently. Extend at runtime via
+ * `NOTEBOOKLM_REASONING_HEADERS` (comma-separated, case-insensitive) or by
+ * adding words here. Exact whole-line match only — never a substring — so a
+ * real answer containing the word mid-sentence is safe.
+ */
+export const REASONING_HEADERS: readonly string[] = [];
 
 /**
  * Joins a list of selector candidates into a comma-separated string.
