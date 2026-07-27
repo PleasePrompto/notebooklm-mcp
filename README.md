@@ -347,6 +347,8 @@ All configuration is via environment variables and tool parameters. There is no 
 | `HEADLESS` | `true` | Run Chrome headless. Override per-call with `show_browser` / `browser_options.show`. |
 | `ANSWER_TIMEOUT_MS` | `600000` | Hard ceiling on the wait for a NotebookLM answer. |
 | `BROWSER_TIMEOUT` | `30000` | Per-action browser timeout. |
+| `NOTEBOOKLM_GATE_EXTRA_POLLS` | `8` | Extra stable polls tolerated while the chat textarea is still disabled. `0` disables the gate. |
+| `NOTEBOOKLM_REASONING_HEADERS` | _(empty)_ | Comma-separated whole-line header words to treat as a leaked reasoning header. |
 | `MAX_SESSIONS` | `10` | Concurrent browser sessions. |
 | `SESSION_TIMEOUT` | `900` | Idle seconds before a session is GC-ed. |
 | `STEALTH_ENABLED` | `true` | Master switch for human-typing/mouse/delay stealth. |

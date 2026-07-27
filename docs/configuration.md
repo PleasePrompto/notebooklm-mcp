@@ -37,6 +37,15 @@ Subdirectories under `dataDir`:
 | `BROWSER_CHANNEL` | enum | `chrome` | `chrome` or `chromium`. `chromium` forces the bundled Patchright build. |
 | `NOTEBOOKLM_BROWSER_CHANNEL` | enum | _(falls back to `BROWSER_CHANNEL`)_ | Same as above. Either name works. |
 
+## Answer extraction
+
+Escape hatches for how an answer is recognised as final (issue #74). Both are optional; the defaults are what the fix ships with and neither needs setting on a normal install.
+
+| Variable | Type | Default | Purpose |
+|---|---|---|---|
+| `NOTEBOOKLM_GATE_EXTRA_POLLS` | int | `8` | Extra stable polls tolerated while the chat textarea is still disabled. NotebookLM disables it for the duration of a turn, so an enabled textarea is the cheapest "generation finished" signal there is — but it also stays disabled on a silent rate-limit, hence the bound (≈6 s at the 750 ms cadence, never a hang). `0` disables the gate. Per-call override via `AskOptions.gateExtraPolls`. |
+| `NOTEBOOKLM_REASONING_HEADERS` | csv | _(empty)_ | Last-resort word list for a leaked *collapsed reasoning header* ("Thoughts"). Matched case-insensitively as a **whole line only**, never as a substring, so an answer containing the word mid-sentence is unaffected. Ships empty: the header strip keys on the `expand_more`/`expand_less` Material icon, which needs no words in any locale. Set it only if a build leaks a bare header with no toggle beside it. |
+
 ## Stealth
 
 | Variable | Type | Default | Purpose |
