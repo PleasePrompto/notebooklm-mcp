@@ -48,3 +48,7 @@ venv/
 .playwright-mcp/
 tmp/
 studio-*.png
+
+# Issue-74 audit plans: a notebook URL is an access token, keep them local.
+research/issue-74/plan.json
+research/issue-74/plan-b.json
