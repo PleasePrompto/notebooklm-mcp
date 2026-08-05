@@ -1,5 +1,7 @@
 # NotebookLM MCP Server
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2FPleasePrompto%2Fnotebooklm-mcp.svg)](https://mcptoplist.com/server/glama%2FPleasePrompto%2Fnotebooklm-mcp)
+
 [![npm](https://img.shields.io/npm/v/notebooklm-mcp.svg)](https://www.npmjs.com/package/notebooklm-mcp)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-Streamable--HTTP-green.svg)](https://modelcontextprotocol.io/)
