@@ -120,9 +120,16 @@ export async function humanType(
     withTypos?: boolean;
   } = {}
 ): Promise<void> {
-  if (!CONFIG.stealthEnabled || !CONFIG.stealthHumanTyping) {
-    // Fast typing without stealth
-    await page.fill(selector, text);
+  // Research questions are 500–4000 chars. Per-character page.fill()
+  // select-alls and replaces the whole field on every key, so a long
+  // prompt looks like "paste, select, paste again" for 1–3 minutes and
+  // the Material textarea grows/clips while it types. Paste once.
+  // Keep keystroke stealth only for short fields (login / password).
+  const forcePaste = text.length >= 40 || text.includes("\n");
+  if (!CONFIG.stealthEnabled || !CONFIG.stealthHumanTyping || forcePaste) {
+    const box = page.locator(selector).first();
+    await box.scrollIntoViewIfNeeded().catch(() => undefined);
+    await box.fill(text);
     return;
   }
 
