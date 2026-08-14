@@ -5,6 +5,7 @@
  */
 
 import type { SessionManager } from "../session/session-manager.js";
+import type { BrowserSession } from "../session/browser-session.js";
 import type { AuthManager } from "../auth/auth-manager.js";
 import type { NotebookLibrary } from "../library/notebook-library.js";
 import type {
@@ -36,6 +37,10 @@ function followUpReminderEnabled(): boolean {
   if (raw === undefined) return false;
   const lower = raw.trim().toLowerCase();
   return lower === "true" || lower === "1" || lower === "yes";
+}
+
+function closeBrowserAfterAskEnabled(): boolean {
+  return CONFIG.closeBrowserAfterAsk;
 }
 
 /**
@@ -132,9 +137,10 @@ export class ToolHandlers {
         overrideHeadless = !browser_options.headless;
       }
 
+      let session: BrowserSession | null = null;
       try {
         // Get or create session (with headless override to handle mode changes)
-        const session = await this.sessionManager.getOrCreateSession(
+        session = await this.sessionManager.getOrCreateSession(
           session_id,
           resolvedNotebookUrl,
           overrideHeadless
@@ -185,8 +191,18 @@ export class ToolHandlers {
           data: result,
         };
       } finally {
+        const shouldClose = closeBrowserAfterAskEnabled();
         // Restore original CONFIG
         Object.assign(CONFIG, originalConfig);
+        // Optional: quit this tab + Chrome after every answer (or failed ask).
+        // Two notebooks in one shared context otherwise wait on the wrong tab.
+        if (shouldClose && session) {
+          try {
+            await this.sessionManager.closeSession(session.sessionId);
+          } catch (closeErr) {
+            log.warning(`⚠️  Could not close browser after ask: ${closeErr}`);
+          }
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

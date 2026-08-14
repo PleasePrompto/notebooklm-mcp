@@ -43,7 +43,7 @@ Subdirectories under `dataDir`:
 |---|---|---|---|
 | `STEALTH_ENABLED` | bool | `true` | Master switch for human-like behaviour. |
 | `STEALTH_RANDOM_DELAYS` | bool | `true` | Random delays between actions. |
-| `STEALTH_HUMAN_TYPING` | bool | `true` | Human-like keystroke timing. |
+| `STEALTH_HUMAN_TYPING` | bool | `true` | Human-like keystroke timing for **short** fields (login). Prompts ≥ 40 characters or containing a newline are always pasted once via `fill` — per-character `page.fill` select-alls the textarea on every key and takes 1–3 minutes. |
 | `STEALTH_MOUSE_MOVEMENTS` | bool | `true` | Realistic mouse motion before click. |
 | `TYPING_WPM_MIN` | int | `160` | Minimum typing speed. |
 | `TYPING_WPM_MAX` | int | `240` | Maximum typing speed. |
@@ -56,6 +56,7 @@ Subdirectories under `dataDir`:
 |---|---|---|---|
 | `MAX_SESSIONS` | int | `10` | Concurrent browser sessions. |
 | `SESSION_TIMEOUT` | int (s) | `900` | Idle seconds before a session is GC-ed. |
+| `NOTEBOOKLM_CLOSE_BROWSER_AFTER_ASK` | bool | `false` | After every `ask_question` (success or fail), close the tab and quit Chrome when it was the last session. Needed when you switch `notebook_url` between calls; otherwise a shared persistent context leaves the previous notebook tab open and the next ask waits on the wrong tab. Leave off to reuse `session_id` for follow-ups. |
 
 ## Authentication (auto-login, optional)
 

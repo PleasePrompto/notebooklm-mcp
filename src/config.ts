@@ -46,6 +46,14 @@ export interface Config {
   // Session Management
   maxSessions: number;
   sessionTimeout: number; // in seconds
+  /**
+   * Quit Chrome after every `ask_question` (success or fail).
+   * One shared persistent context otherwise leaves the previous notebook
+   * tab open, so the next ask with a different `notebook_url` waits on
+   * the wrong tab. Off by default so `session_id` follow-ups still work.
+   * `NOTEBOOKLM_CLOSE_BROWSER_AFTER_ASK=true` to enable.
+   */
+  closeBrowserAfterAsk: boolean;
 
   // Authentication
   autoLoginEnabled: boolean;
@@ -105,6 +113,7 @@ const DEFAULTS: Config = {
   // Session Management
   maxSessions: 10,
   sessionTimeout: 900, // 15 minutes
+  closeBrowserAfterAsk: false,
 
   // Authentication
   autoLoginEnabled: false,
@@ -200,6 +209,10 @@ function applyEnvOverrides(config: Config): Config {
     answerTimeoutMs: parseInteger(process.env.ANSWER_TIMEOUT_MS, config.answerTimeoutMs),
     maxSessions: parseInteger(process.env.MAX_SESSIONS, config.maxSessions),
     sessionTimeout: parseInteger(process.env.SESSION_TIMEOUT, config.sessionTimeout),
+    closeBrowserAfterAsk: parseBoolean(
+      process.env.NOTEBOOKLM_CLOSE_BROWSER_AFTER_ASK,
+      config.closeBrowserAfterAsk
+    ),
     autoLoginEnabled: parseBoolean(process.env.AUTO_LOGIN_ENABLED, config.autoLoginEnabled),
     loginEmail: process.env.LOGIN_EMAIL || config.loginEmail,
     loginPassword: process.env.LOGIN_PASSWORD || config.loginPassword,

@@ -47,6 +47,8 @@ export const Selectors = {
       'textarea[aria-label*="vraag" i]',
       'textarea[aria-label*="質問" i]',
       'textarea[aria-label*="pergunta" i]',
+      'textarea[aria-label*="zapytania" i]',
+      'textarea[aria-label*="pole zapytania" i]',
     ],
     /**
      * The chat submit button has the *language-bound* aria-label

@@ -400,35 +400,35 @@ export class BrowserSession {
         );
       }
 
-      log.info(`  ⌨️  Typing question with human-like behavior...`);
-      await sendProgress?.("Typing question with human-like behavior...", 2, 5);
-      await humanType(page, inputSelector, question, {
-        withTypos: true,
-        wpm: Math.max(CONFIG.typingWpmMin, CONFIG.typingWpmMax),
-      });
+      log.info(`  ⌨️  Pasting question (${question.length} chars)...`);
+      await sendProgress?.("Pasting question...", 2, 5);
+      await humanType(page, inputSelector, question, { withTypos: false });
 
-      // Small pause before submitting
-      await randomDelay(500, 1000);
-
-      // Submit the question (Enter key)
+      // Submit immediately — Angular already has the filled value.
       log.info(`  📤 Submitting question...`);
       await sendProgress?.("Submitting question...", 3, 5);
       await page.keyboard.press("Enter");
-
-      // Small pause after submit
-      await randomDelay(1000, 1500);
 
       // Wait for the response with streaming-stability detection (issue #43).
       // Timeout comes from CONFIG.answerTimeoutMs so users can tune it via
       // ANSWER_TIMEOUT_MS or browser_options.timeout_ms (issue #14, #27).
       log.info(`  ⏳ Waiting for response (streaming-stability)...`);
       await sendProgress?.("Waiting for NotebookLM response (streaming-stability)...", 3, 5);
-      const answer = await waitForStableAnswer(page, {
+      let answer = await waitForStableAnswer(page, {
         question,
         timeoutMs: CONFIG.answerTimeoutMs,
         pollIntervalMs: 750,
         ignoreTexts: existingResponses,
       });
+
+      if (!answer) {
+        const snapped = await snapshotPriorAnswers(page);
+        const ignore = new Set(existingResponses.map((t) => t.trim()));
+        answer =
+          [...snapped]
+            .reverse()
+            .find((t) => t.trim().length >= 160 && !ignore.has(t.trim())) ?? null;
+      }
 
       if (!answer) {
         throw new Error("Timeout waiting for response from NotebookLM");

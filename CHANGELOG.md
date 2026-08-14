@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Long `ask_question` prompts no longer type character-by-character via `page.fill`.** Playwright `fill` select-alls the field on every key, so a 500–4000 character research question looked like paste/select/paste for 1–3 minutes. Prompts ≥ 40 characters (or containing a newline) are pasted once. Keystroke stealth remains for short login fields.
+- **`waitForStableAnswer` no longer treats a finished answer as a loading spinner.** `isPlaceholder()` used `includes("loading" | "thinking" | "searching")` on the entire answer text, so a real NotebookLM reply that mentioned *loading* was discarded every poll until the 10-minute timeout. Answers ≥ 160 characters are never placeholders. `readLatestAnswer` falls back when `:last-child` misses (suggested follow-ups). On timeout, a long `lastSeen` / DOM snapshot is returned instead of `null`.
+- **Polish NotebookLM UI:** loading phrases and query-box `aria-label` fallbacks.
+
+### Added
+
+- **`NOTEBOOKLM_CLOSE_BROWSER_AFTER_ASK`** (default `false`). When true, `ask_question` closes the session after each answer and quits Chrome if it was the last tab, so the next call with a different `notebook_url` opens a fresh window instead of waiting on the previous notebook tab. Follow-up `session_id` reuse is unchanged when the flag is off.
+
 ## [2.0.0] - 2026-04-30
 
 Major release that closes the issue backlog and replaces the brittle parts of
