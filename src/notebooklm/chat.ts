@@ -101,6 +101,30 @@ const PLACEHOLDER_SNIPPETS = [
   "お待ちください",
   "検索中",
   "分析中",
+  // Polish (NotebookLM / Gemini Notebook UI when the Google account is PL)
+  "oceniam trafność",
+  "przeglądam materiał",
+  "przeglądam źródła",
+  "przeglądam dokumenty",
+  "odpowiadam",
+  "tworzę odpowiedź",
+  "generuję odpowiedź",
+  "przygotowuję odpowiedź",
+  "analizuję",
+  "szukam",
+  "szukam odpowiedzi",
+  "wczytywanie",
+  "ładowanie",
+  "proszę czekać",
+  "czytam źródła",
+  "sprawdzam źródła",
+  "zbieram informacje",
+  "zbieram fakty",
+  "myślę",
+  "szukam wskazówek",
+  "czytam rozdziały",
+  "badam szczegóły",
+  "sprawdzam zakres",
 ];
 
 const ERROR_SNIPPETS = [
@@ -172,12 +196,20 @@ const RATE_LIMIT_MESSAGES = [
   "1日あたりの上限に達しました",
 ];
 
+/** Finished answers are long. Words like "loading" / "thinking" appear
+ * inside real source text and must not block extraction. */
+const REAL_ANSWER_MIN = 160;
+
 function isPlaceholder(text: string): boolean {
-  const lower = text.toLowerCase();
+  const trimmed = text.trim();
+  if (trimmed.length >= REAL_ANSWER_MIN) return false;
+  const lower = trimmed.toLowerCase();
   if (PLACEHOLDER_SNIPPETS.some((s) => lower.includes(s))) return true;
-  // Short text ending with "..." is almost certainly a loading indicator;
-  // real responses run well past 50 chars.
-  if (text.length < 50 && text.trim().endsWith("...")) return true;
+  // Short text ending with "..." / "…" is almost certainly a loading
+  // indicator (PL/EN UI uses the single-char ellipsis).
+  if (trimmed.length < 80 && (/[.]{3}|…$/.test(trimmed) || trimmed.endsWith("..."))) {
+    return true;
+  }
   return false;
 }
 
@@ -300,24 +332,31 @@ export async function waitForStableAnswer(
     await safeSleep(page, pollIntervalMs);
   }
 
+  // Prefer a long lastSeen over silent timeout — the UI often leaves
+  // the textarea disabled after Gemini finishes.
+  if (lastSeen && lastSeen.trim().length >= REAL_ANSWER_MIN && !isPlaceholder(lastSeen)) {
+    return lastSeen;
+  }
   return null;
 }
 
 /**
  * Read the latest answer container's text and strip UI-control leakage.
- * Uses `:last-child` so we always target the most recent turn.
+ * Prefer `:last-child`, then fall back to the last `.to-user-container`
+ * (suggested-follow-ups after the answer make `:last-child` miss).
  */
 async function readLatestAnswer(page: Page): Promise<string | null> {
-  try {
-    const raw = await page
-      .locator(Selectors.chat.latestAnswerText)
-      .last()
-      .innerText({ timeout: 2_000 });
-    const cleaned = sanitizeAnswer(raw);
-    return cleaned.length > 0 ? cleaned : null;
-  } catch {
-    return null;
+  const selectors = [Selectors.chat.latestAnswerText, Selectors.chat.answerText];
+  for (const sel of selectors) {
+    try {
+      const raw = await page.locator(sel).last().innerText({ timeout: 2_000 });
+      const cleaned = sanitizeAnswer(raw);
+      if (cleaned.length > 0) return cleaned;
+    } catch {
+      // try next selector
+    }
   }
+  return null;
 }
 
 /**
