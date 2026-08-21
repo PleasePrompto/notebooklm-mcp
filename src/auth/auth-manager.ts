@@ -46,6 +46,23 @@ const CRITICAL_COOKIE_NAMES = [
   "__Secure-3PSID", // Secure variants
 ];
 
+/**
+ * URL prefixes that mean "signed in and inside the app".
+ *
+ * Google rebranded NotebookLM to Gemini Notebook and now serves it from
+ * notebook.google.com. The old host still resolves, so accept both — matching
+ * only the old one makes every login look like a failure after the rebrand.
+ */
+const APP_URL_PREFIXES = ["https://notebooklm.google.com/", "https://notebook.google.com/"];
+
+/**
+ * Check whether a URL points at the app (either host) rather than the Google
+ * sign-in flow.
+ */
+function isAppUrl(url: string): boolean {
+  return APP_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
+}
+
 export class AuthManager {
   private stateFilePath: string;
   private sessionFilePath: string;
@@ -278,7 +295,7 @@ export class AuthManager {
    * Perform interactive login
    * User will see a browser window and login manually
    *
-   * SIMPLE & RELIABLE: Just wait for URL to change to notebooklm.google.com
+   * SIMPLE & RELIABLE: Just wait for the URL to change to an app host (see isAppUrl)
    */
   async performLogin(page: Page, sendProgress?: ProgressCallback): Promise<boolean> {
     try {
@@ -320,7 +337,7 @@ export class AuthManager {
           }
 
           // ✅ SIMPLE: Check if we're on NotebookLM (any path!)
-          if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+          if (isAppUrl(currentUrl)) {
             await sendProgress?.("Login successful! NotebookLM detected!", 9, 10);
             log.success("✅ Login successful! NotebookLM URL detected.");
             log.success(`✅ Current URL: ${currentUrl}`);
@@ -344,7 +361,7 @@ export class AuthManager {
 
       // Timeout reached - final check
       const currentUrl = page.url();
-      if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+      if (isAppUrl(currentUrl)) {
         await sendProgress?.("Login successful (detected on timeout check)!", 9, 10);
         log.success("✅ Login successful (detected on timeout check)");
         return true;
@@ -491,7 +508,7 @@ export class AuthManager {
       } else {
         log.error(`  ❌ Stuck on Google accounts page: ${currentUrl.slice(0, 80)}...`);
       }
-    } else if (currentUrl.includes("notebooklm.google.com")) {
+    } else if (isAppUrl(currentUrl)) {
       log.warning("  ⚠️  Reached NotebookLM but couldn't detect successful login");
       log.info("  💡 This might be a timing issue - try again");
     } else {
@@ -508,7 +525,7 @@ export class AuthManager {
   /**
    * Wait for Google to redirect to NotebookLM after successful login (SIMPLE & RELIABLE)
    *
-   * Just checks if URL changes to notebooklm.google.com - no complex UI element searching!
+   * Just checks if the URL changes to an app host - no complex UI element searching!
    * Matches the simplified approach used in performLogin().
    */
   private async waitForRedirectAfterLogin(page: Page, deadline: number): Promise<boolean> {
@@ -519,7 +536,7 @@ export class AuthManager {
         const currentUrl = page.url();
 
         // Simple check: Are we on NotebookLM?
-        if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+        if (isAppUrl(currentUrl)) {
           log.success("    ✅ NotebookLM URL detected!");
           // Short wait to ensure page is loaded
           await page.waitForTimeout(2000);
@@ -539,7 +556,7 @@ export class AuthManager {
   /**
    * Wait for NotebookLM to load (SIMPLE & RELIABLE)
    *
-   * Just checks if URL starts with notebooklm.google.com - no complex UI element searching!
+   * Just checks if the URL starts with an app host - no complex UI element searching!
    * Matches the simplified approach used in performLogin().
    */
   private async waitForNotebook(page: Page, timeoutMs: number): Promise<boolean> {
@@ -550,7 +567,7 @@ export class AuthManager {
         const currentUrl = page.url();
 
         // Simple check: Are we on NotebookLM?
-        if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+        if (isAppUrl(currentUrl)) {
           log.success("  ✅ NotebookLM URL detected");
           return true;
         }
