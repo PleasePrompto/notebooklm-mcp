@@ -135,14 +135,20 @@ export const Selectors = {
       'button[aria-label*="ソースを追加" i]',
     ],
     /**
-     * Real Material modal. `[role="dialog"]` is set by Angular synchronously
-     * the moment the modal mounts — race-free against the `.mdc-dialog--open`
+     * Real Material modal. `role="dialog"` is set by Angular synchronously the
+     * moment the modal mounts — race-free against the `.mdc-dialog--open`
      * animation class and resistant to Material-UI version bumps. Avoid
      * `.cdk-overlay-pane` (matches every dropdown / emoji picker / menu).
+     *
+     * Scoped to `mat-dialog-container` because the current NotebookLM UI keeps
+     * a permanently hidden `[role="dialog"]` node in the DOM. A bare
+     * `[role="dialog"]` selector resolves `.first()` to that hidden node, so
+     * waiting for it to become visible never succeeds and every add-source
+     * call fails with `Could not open the "Add source" dialog`.
      */
-    overlayPane: '[role="dialog"]',
-    overlayInput: '[role="dialog"] input[type="text"]:not([readonly])',
-    overlayTextarea: '[role="dialog"] textarea',
+    overlayPane: 'mat-dialog-container[role="dialog"]',
+    overlayInput: 'mat-dialog-container[role="dialog"] input[type="text"]:not([readonly])',
+    overlayTextarea: 'mat-dialog-container[role="dialog"] textarea',
     /**
      * Source-type buttons in the Add-source overlay. Google ships them
      * *without* aria-labels — the only stable, language-agnostic anchor is
