@@ -139,10 +139,17 @@ export const Selectors = {
      * the moment the modal mounts — race-free against the `.mdc-dialog--open`
      * animation class and resistant to Material-UI version bumps. Avoid
      * `.cdk-overlay-pane` (matches every dropdown / emoji picker / menu).
+     *
+     * Since the NotebookLM -> Gemini Notebook rebrand, the notebook
+     * cover-customization emoji picker also carries `role="dialog"` and sits
+     * earlier in DOM order, so `.first()` was locking onto the hidden emoji
+     * picker instead of the real Add-source modal (#93, #85). Excluding
+     * `.emoji-keyboard__container` restores the original match.
      */
-    overlayPane: '[role="dialog"]',
-    overlayInput: '[role="dialog"] input[type="text"]:not([readonly])',
-    overlayTextarea: '[role="dialog"] textarea',
+    overlayPane: '[role="dialog"]:not(.emoji-keyboard__container)',
+    overlayInput:
+      '[role="dialog"]:not(.emoji-keyboard__container) input[type="text"]:not([readonly])',
+    overlayTextarea: '[role="dialog"]:not(.emoji-keyboard__container) textarea',
     /**
      * Source-type buttons in the Add-source overlay. Google ships them
      * *without* aria-labels — the only stable, language-agnostic anchor is
@@ -200,6 +207,11 @@ export const Selectors = {
      * visible-text variants are fallbacks for older builds.
      */
     insertConfirm: [
+      // Structural, language-agnostic anchor tried first so a missing-locale
+      // text fallback below (e.g. Korean, which had no entry) can't cause a
+      // silent 90s timeout with no click at all (#89).
+      '.mat-mdc-dialog-container button.mdc-button--unelevated:not([disabled])',
+      '.mat-mdc-dialog-container button.mdc-button--raised:not([disabled])',
       // Class-anchored (language-free).
       'button.mdc-button--raised:has-text("Insert")',
       'button.mat-flat-button:has-text("Insert")',
@@ -212,6 +224,9 @@ export const Selectors = {
       'button.mdc-button--raised:has-text("Inserisci")',
       'button.mdc-button--raised:has-text("Invoegen")',
       'button.mdc-button--raised:has-text("挿入")',
+      'button.mdc-button--raised:has-text("삽입")',
+      'button:has-text("삽입")',
+      'button:has-text("추가")',
       'button:has-text("Insert")',
       'button:has-text("Einfügen")',
       'button:has-text("Hinzufügen")',
