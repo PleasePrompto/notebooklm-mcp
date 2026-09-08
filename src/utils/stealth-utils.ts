@@ -139,8 +139,10 @@ export async function humanType(
   await page.fill(selector, "");
   await randomDelay(30, 80);
 
-  // Click to focus
-  await page.click(selector);
+  // Focus without a pointer click. Gemini Notebook can leave a transient CDK
+  // backdrop mounted above the query textarea; it intercepts pointer events
+  // even though the textarea remains visible, enabled, and keyboard-focusable.
+  await page.focus(selector);
   await randomDelay(20, 60);
 
   // Type each character
